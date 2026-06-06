@@ -12,18 +12,21 @@ import type * as THREE from 'three';
 // Compositions tag their sub-parts with `.name` so callers can pull pieces out
 // (e.g. detach the axe from the trunk to carry it): group.getObjectByName('axe').
 
-export type AssetFactory = () => THREE.Object3D;
+// Factories may take an optional params object — procedural assets (a track of a
+// given length/spline, a tunnel face of a given width) read it; static props
+// ignore it. createAsset forwards whatever the caller passes.
+export type AssetFactory<P = any> = (params?: P) => THREE.Object3D;
 
 const assets = new Map<string, AssetFactory>();
 
-export function defineAsset(id: string, build: AssetFactory): void {
-  assets.set(id, build);
+export function defineAsset<P = any>(id: string, build: AssetFactory<P>): void {
+  assets.set(id, build as AssetFactory);
 }
 
-export function createAsset(id: string): THREE.Object3D {
+export function createAsset<P = any>(id: string, params?: P): THREE.Object3D {
   const build = assets.get(id);
   if (!build) throw new Error(`unknown asset: "${id}" (registered: ${[...assets.keys()].join(', ')})`);
-  return build();
+  return build(params);
 }
 
 export function hasAsset(id: string): boolean {

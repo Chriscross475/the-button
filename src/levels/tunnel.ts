@@ -3,7 +3,7 @@ import type { GameContext } from '../game/types';
 import { buildExitRoom, RH } from './exit-room';
 import { addUpdater } from '../experiences/scheduler';
 import { thunder, trainHorn, pop } from '../audio/sfx';
-import { createAsset } from '../assets';
+import { createAsset, makeRng } from '../assets';
 import { registerInteractable } from '../interactables/system';
 import { defineCombine, type Carryable } from '../game/combine';
 import { feedsTunnel } from './slingshot-state';
@@ -25,12 +25,6 @@ defineCombine('axe', 'tunnel-plank', () => {
 // hit dirt → dead. Only tunnel 2, down by the cabin, arcs you high enough to
 // reach the cabin top — bleed off speed (look down to drop) and you land safe;
 // miss, and it's the ground again.
-
-const OPEN_HALF = 2.6;
-const SPRING_Y = 2.6;
-const ARCH_CROWN = SPRING_Y + OPEN_HALF;
-const WALL_H = 14;
-const DEPTH = 8;
 
 const WALL_T1 = -14; // near tunnel, close to spawn (mouth faces +Z) — the TRAP
 const HOUSE_Z = 38; // elevated cabin, way down the far end, beside tunnel 2
@@ -76,16 +70,18 @@ export function revealTunnel(ctx: GameContext): void {
   buildSideWalls(root); // painted 2D mountain walls on the two sides
 
   // Tunnel 1 (front): default orientation (mouth +Z, bore receding −Z).
-  const t1 = buildMountain();
+  const t1 = createAsset('tunnel-face');
   t1.position.z = WALL_T1;
   root.add(t1);
   // Tunnel 2 (far): mirrored 180° so its mouth faces −Z (back toward the cabin).
-  const t2 = buildMountain();
+  const t2 = createAsset('tunnel-face');
   t2.position.z = WALL_T2;
   t2.rotation.y = Math.PI;
   root.add(t2);
 
-  for (const x of TRACK_X) buildTrack(root, x, WALL_T1 - 9, WALL_T2 + 9);
+  for (const x of TRACK_X) {
+    root.add(createAsset('track', { path: [new THREE.Vector3(x, 0, WALL_T1 - 9), new THREE.Vector3(x, 0, WALL_T2 + 9)] }));
+  }
   buildGroundScatter(root);
 
   // The elevated cabin, between spawn and tunnel 2, open on top to land in.
@@ -389,83 +385,6 @@ export function revealTunnel(ctx: GameContext): void {
   ctx.narrate('Trains. Tunnels. A storm rolling in. You will figure it out. Or you will not.', 5500);
 }
 
-function makeRng(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 0xffffffff;
-  };
-}
-
-// A mountain face with one arched tunnel, built LOCAL (face z=0, mouth +Z, bore −Z).
-function buildMountain(): THREE.Group {
-  const g = new THREE.Group();
-  const rock = new THREE.MeshStandardMaterial({ color: 0x35373c, roughness: 1, flatShading: true });
-  const shades = [0x2c2e34, 0x33353b, 0x3a3c44, 0x42454e, 0x494c56].map(
-    (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, flatShading: true }),
-  );
-  const bore = new THREE.MeshStandardMaterial({ color: 0x020305, roughness: 1, side: THREE.DoubleSide });
-  const HALF = 32;
-  const cz = -DEPTH / 2;
-
-  const left = new THREE.Mesh(new THREE.BoxGeometry(HALF - OPEN_HALF, WALL_H, DEPTH), rock);
-  left.position.set(-(OPEN_HALF + (HALF - OPEN_HALF) / 2), WALL_H / 2, cz);
-  const right = left.clone();
-  right.position.x = OPEN_HALF + (HALF - OPEN_HALF) / 2;
-  const top = new THREE.Mesh(new THREE.BoxGeometry(OPEN_HALF * 2 + 1, WALL_H - ARCH_CROWN, DEPTH), rock);
-  top.position.set(0, (ARCH_CROWN + WALL_H) / 2, cz);
-  for (const m of [left, right, top]) {
-    m.castShadow = true;
-    m.receiveShadow = true;
-    g.add(m);
-  }
-
-  const ridge = makeRng(7);
-  for (let x = -HALF + 2; x < HALF - 2; x += 3.4) {
-    const w = 2.4 + ridge() * 2.6;
-    const h = 1.6 + ridge() * 3.5;
-    const crag = new THREE.Mesh(new THREE.BoxGeometry(w, h, DEPTH * (0.5 + ridge() * 0.5)), shades[(ridge() * shades.length) | 0]);
-    crag.position.set(x + (ridge() - 0.5) * 1.5, WALL_H - 0.5 + h / 2 - ridge() * 1.0, cz + (ridge() - 0.5) * 2);
-    crag.rotation.set((ridge() - 0.5) * 0.25, (ridge() - 0.5) * 0.4, (ridge() - 0.5) * 0.4);
-    crag.castShadow = true;
-    g.add(crag);
-  }
-
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(OPEN_HALF * 2.2, ARCH_CROWN + 0.8), bore);
-  back.position.set(0, (ARCH_CROWN + 0.8) / 2, -DEPTH - 0.5);
-  g.add(back);
-  for (let i = 0; i < 6; i++) {
-    const t = i / 5;
-    const z = -0.5 - t * (DEPTH - 0.5);
-    const r = (OPEN_HALF + 0.1) * (1 - t * 0.18);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.28, 6, 24, Math.PI), bore);
-    ring.position.set(0, SPRING_Y, z);
-    g.add(ring);
-  }
-
-  const archR = OPEN_HALF + 0.45;
-  const segs = 15;
-  for (let i = 0; i <= segs; i++) {
-    const a = Math.PI * (i / segs);
-    const isKey = Math.abs(i - segs / 2) < 0.5;
-    const v = new THREE.Mesh(new THREE.BoxGeometry(isKey ? 1.0 : 0.62, isKey ? 0.9 : 0.7, 1.5), shades[isKey ? 4 : 2 + (i % 2)]);
-    v.position.set(Math.cos(a) * archR, SPRING_Y + Math.sin(a) * archR, isKey ? 0.4 : 0.25);
-    v.rotation.z = a - Math.PI / 2;
-    v.castShadow = true;
-    g.add(v);
-  }
-  for (const sgn of [-1, 1]) {
-    for (let i = 0; i < 4; i++) {
-      const y = 0.4 + i * (SPRING_Y / 4);
-      const stone = new THREE.Mesh(new THREE.BoxGeometry(0.62, SPRING_Y / 4 + 0.06, 1.4), shades[2 + (i % 2)]);
-      stone.position.set(sgn * archR, y, 0.25);
-      stone.castShadow = true;
-      g.add(stone);
-    }
-  }
-  return g;
-}
-
 // Distant darker peaks behind BOTH tunnels for depth.
 function buildBackdrop(root: THREE.Object3D): void {
   const farMat = new THREE.MeshStandardMaterial({ color: 0x191c24, roughness: 1, flatShading: true });
@@ -553,31 +472,5 @@ function buildGroundScatter(root: THREE.Object3D): void {
     rock.position.set(x, s * 0.28, z);
     root.add(rock);
     placed++;
-  }
-}
-
-// One track: gravel bed, two steel rails + ties.
-function buildTrack(root: THREE.Object3D, cx: number, fromZ: number, toZ: number): void {
-  const rail = new THREE.MeshStandardMaterial({ color: 0x7a7a84, roughness: 0.45, metalness: 0.7 });
-  const tie = new THREE.MeshStandardMaterial({ color: 0x39301f, roughness: 0.95, flatShading: true });
-  const ballast = new THREE.MeshStandardMaterial({ color: 0x232529, roughness: 1 });
-  const len = toZ - fromZ;
-  const midZ = (fromZ + toZ) / 2;
-
-  const bed = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.14, len), ballast);
-  bed.position.set(cx, -0.02, midZ);
-  bed.receiveShadow = true;
-  root.add(bed);
-  for (const dx of [-0.55, 0.55]) {
-    const r = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, len), rail);
-    r.position.set(cx + dx, 0.12, midZ);
-    r.castShadow = true;
-    root.add(r);
-  }
-  for (let z = fromZ; z <= toZ; z += 0.9) {
-    const t = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 0.26), tie);
-    t.position.set(cx, 0.05, z);
-    t.receiveShadow = true;
-    root.add(t);
   }
 }

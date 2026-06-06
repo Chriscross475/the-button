@@ -94,57 +94,49 @@ export function revealSlingshot(ctx: GameContext): void {
 
   ctx.openRoom();
 
-  // ── Materials ──
-  const railMat = new THREE.MeshStandardMaterial({ color: 0x4b4f57, roughness: 0.6, metalness: 0.5 });
-  const tieMat = new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 1, flatShading: true });
-  const mouthMat = new THREE.MeshStandardMaterial({ color: 0x474b54, roughness: 1, flatShading: true });
+  // openRoom leaves the hub's white room SHELL behind (toppled walls, floor,
+  // floated ceiling); our gravel + tunnel faces replace it, so hide that whole
+  // bright shell — otherwise its panels z-fight up through the dark ground.
+  ctx.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || m === ground) return;
+    const c = (m.material as THREE.MeshStandardMaterial)?.color;
+    if (!c || c.r < 0.7 || c.g < 0.7 || c.b < 0.7) return; // only the white shell
+    const pa = ((m.geometry as THREE.BufferGeometry) as unknown as { parameters?: { width?: number; height?: number; depth?: number } })?.parameters || {};
+    if (Math.max(pa.width || 0, pa.height || 0, pa.depth || 0) > 5) m.visible = false;
+  });
+
+  // ── Materials (block barriers; tracks + tunnel faces are shared assets) ──
   const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.95, flatShading: true });
   const stoneMat = new THREE.MeshStandardMaterial({ color: 0x8a8f97, roughness: 1, flatShading: true });
   const steelMat = new THREE.MeshStandardMaterial({ color: 0x6a6f78, roughness: 0.4, metalness: 0.8, flatShading: true });
 
   // ── Build each of the four tunnels ──
+  const SP = 2.0; // spacing between parallel lanes
   for (const d of DIRS) {
-    const isZ = d.vec.z !== 0;
-    const sign = isZ ? d.vec.z : d.vec.x;
-    const half = d.tracks * 0.7 + 0.7;
-    const runMid = ((TRACK_END + MOUTH) / 2) * sign;
-    const runLen = MOUTH - TRACK_END;
-    // rails
+    const dir = d.vec;
+    const isZ = dir.z !== 0;
+    const sign = isZ ? dir.z : dir.x;
+    const perp = new THREE.Vector3(dir.z, 0, -dir.x); // 90° in the ground plane
+    const span = (d.tracks - 1) * SP;
+    const openHalf = span / 2 + 1.8; // tunnel mouth fits all the lanes
+    const half = openHalf; // the block spans the opening
+
+    // Tracks — one 2-rail spline track per lane, from near the centre out
+    // through the mouth (the SAME shared 'track' asset the tunnel level uses).
     for (let i = 0; i < d.tracks; i++) {
-      const off = (i - (d.tracks - 1) / 2) * 1.4;
-      const rail = new THREE.Mesh(
-        new THREE.BoxGeometry(isZ ? 0.12 : runLen, 0.12, isZ ? runLen : 0.12),
-        railMat,
-      );
-      rail.position.set(isZ ? off : runMid, 0.16, isZ ? runMid : off);
-      root.add(rail);
+      const off = (i - (d.tracks - 1) / 2) * SP;
+      const start = dir.clone().multiplyScalar(TRACK_END).addScaledVector(perp, off);
+      const end = dir.clone().multiplyScalar(MOUTH + 5).addScaledVector(perp, off);
+      root.add(createAsset('track', { path: [start, end] }));
     }
-    // ties
-    for (let t = TRACK_END; t <= MOUTH; t += 1.8) {
-      const tie = new THREE.Mesh(new THREE.BoxGeometry(isZ ? half * 2 : 0.3, 0.1, isZ ? 0.3 : half * 2), tieMat);
-      tie.position.set(isZ ? 0 : t * sign, 0.05, isZ ? t * sign : 0);
-      root.add(tie);
-    }
-    // mouth arch
-    const mz = MOUTH * sign;
-    for (const s of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(1.1, 7, 1.1), mouthMat);
-      post.position.set(isZ ? s * (half + 0.6) : mz, 3.5, isZ ? mz : s * (half + 0.6));
-      root.add(post);
-    }
-    const lintel = new THREE.Mesh(
-      new THREE.BoxGeometry(isZ ? half * 2 + 2.2 : 1.3, 1.3, isZ ? 1.3 : half * 2 + 2.2),
-      mouthMat,
-    );
-    lintel.position.set(isZ ? 0 : mz, 7.1, isZ ? mz : 0);
-    root.add(lintel);
-    const back = new THREE.Mesh(
-      new THREE.PlaneGeometry(half * 2, 7),
-      new THREE.MeshBasicMaterial({ color: 0x05060a }),
-    );
-    back.position.set(isZ ? 0 : mz + sign * 0.6, 3.4, isZ ? mz + sign * 0.6 : 0);
-    back.rotation.y = isZ ? 0 : Math.PI / 2;
-    root.add(back);
+
+    // Arched rock tunnel face at the mouth, opening toward the centre (the SAME
+    // 'tunnel-face' asset as the tunnel level — four of them wall in the yard).
+    const face = createAsset('tunnel-face', { half: 30, openHalf, wallH: 13 });
+    face.position.copy(dir).multiplyScalar(MOUTH);
+    face.rotation.y = Math.atan2(-dir.x, -dir.z);
+    root.add(face);
 
     // ── Block ──
     if (d.block) {
@@ -199,39 +191,6 @@ export function revealSlingshot(ctx: GameContext): void {
         if (d.block === 'wood') breakWood = clear;
         else breakStone = clear;
       }
-    }
-  }
-
-  // ── Mountain walls: a rocky ring enclosing the crossroads, with the four
-  //    tunnels boring through it (an opening left at each tunnel direction) ──
-  const mtnA = new THREE.MeshStandardMaterial({ color: 0x4e4a45, roughness: 1, flatShading: true });
-  const mtnB = new THREE.MeshStandardMaterial({ color: 0x5b5650, roughness: 1, flatShading: true });
-  const tunnelAngles = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2]; // S, E, N, W
-  const OPEN_HALF = 0.3; // angular half-width of each tunnel opening
-  const nearTunnel = (a: number) =>
-    tunnelAngles.some((t) => {
-      let d = Math.abs(a - t);
-      d = Math.min(d, Math.PI * 2 - d);
-      return d < OPEN_HALF;
-    });
-  for (let a = 0; a < Math.PI * 2; a += 0.09) {
-    if (nearTunnel(a)) continue;
-    const R = 30 + Math.random() * 3;
-    const h = 12 + Math.random() * 10;
-    const peak = new THREE.Mesh(
-      new THREE.ConeGeometry(4.5 + Math.random() * 3, h, 6 + Math.floor(Math.random() * 3)),
-      Math.random() < 0.5 ? mtnA : mtnB,
-    );
-    peak.position.set(Math.sin(a) * R, h / 2 - 0.6, Math.cos(a) * R);
-    peak.rotation.y = Math.random() * Math.PI;
-    root.add(peak);
-    // a shorter rock just inside, for depth + to fill gaps between peaks
-    if (Math.random() < 0.7) {
-      const h2 = 7 + Math.random() * 6;
-      const Rf = R - 4 - Math.random() * 3;
-      const rock = new THREE.Mesh(new THREE.ConeGeometry(3 + Math.random() * 2, h2, 6), mtnA);
-      rock.position.set(Math.sin(a) * Rf, h2 / 2 - 0.6, Math.cos(a) * Rf);
-      root.add(rock);
     }
   }
 
@@ -425,7 +384,7 @@ export function revealSlingshot(ctx: GameContext): void {
 
   ctx.setRegions([{ minX: -34, maxX: 34, minZ: -34, maxZ: 34, floorY: 0 }]);
   ctx.narrate(
-    'A trainyard crossroads. Four tunnels, one slingshot, flinging trains wherever it is pointed. And it is pointed somewhere right now. Affecting things. Elsewhere.',
+    'A crossroads. Four tunnels run off into the dark, and at their centre, a machine — aimed at something, and waiting. The narrator knows exactly what it does. The narrator says nothing.',
     8000,
   );
 }
