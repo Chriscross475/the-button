@@ -77,7 +77,6 @@ export function revealBasketball(ctx: GameContext): void {
   let mode: 'free' | 'held' | 'flying' = 'free';
   const vel = new THREE.Vector3();
   let prevY = BALL_R;
-  let flyLife = 0;
   let scored = false;
 
   // Drop the ball from above, just in front of where the player is looking.
@@ -101,9 +100,9 @@ export function revealBasketball(ctx: GameContext): void {
     heldDrop: 0.45,
     onGrab: () => {
       mode = 'held';
+      started = true; // the clock starts when you first pick the ball up
     },
     onThrow: (charge) => {
-      if (ended) return;
       started = true;
       whoosh();
       throwPos.copy(ctx.playerPos());
@@ -111,7 +110,6 @@ export function revealBasketball(ctx: GameContext): void {
       vel.copy(fwd).multiplyScalar(9 + charge * 7);
       vel.y += 1.6; // a bit of arc
       mode = 'flying';
-      flyLife = 0;
       scored = false;
     },
   };
@@ -128,16 +126,16 @@ export function revealBasketball(ctx: GameContext): void {
   hud();
 
   addUpdater((dt) => {
-    if (ended) return true;
-    if (started) {
+    // The game clock + scoring run only while the round is live. The BALL physics
+    // always runs — so the ball stays a real, throwable ball even after you win.
+    if (!ended && started) {
       timeLeft -= dt;
       if (timeLeft <= 0) {
         timeLeft = 0;
         endGame();
-        return true;
       }
     }
-    hud();
+    if (!ended) hud();
 
     if (mode === 'held') {
       prevY = ball.position.y;
@@ -155,19 +153,20 @@ export function revealBasketball(ctx: GameContext): void {
     ball.rotation.x += vel.z * dt * 0.4;
     ball.rotation.z -= vel.x * dt * 0.4;
 
+    const settled = p.y <= BALL_R + 0.001 && Math.abs(vel.y) < 0.7 && Math.hypot(vel.x, vel.z) < 0.4;
     if (mode === 'flying') {
-      if (!scored && prevY > RIM_Y && p.y <= RIM_Y && vel.y < 0 && Math.hypot(p.x, p.z - RIM_Z) < RIM_R * 0.92) {
+      if (!ended && !scored && prevY > RIM_Y && p.y <= RIM_Y && vel.y < 0 && Math.hypot(p.x, p.z - RIM_Z) < RIM_R * 0.92) {
         scored = true;
         const far = Math.hypot(throwPos.x, throwPos.z - RIM_Z) > FAR_DIST;
         score(far ? 3 : 1);
       }
-      flyLife += dt;
-      if (scored || flyLife > 1.3) dropInFront(); // bring it back in front for the next shot
-    } else if (p.y <= BALL_R + 0.001 && Math.abs(vel.y) < 0.7 && Math.hypot(vel.x, vel.z) < 0.4) {
-      vel.set(0, 0, 0); // settled
+      // The SAME ball comes to rest wherever it lands — no respawn; you go fetch it.
+      if (settled) { vel.set(0, 0, 0); mode = 'free'; }
+    } else if (settled) {
+      vel.set(0, 0, 0);
     }
     prevY = p.y;
-    return false;
+    return false; // never stop — the ball lives for the whole level
   });
 
   ctx.narrate('A hoop, and a ball that drops at your feet. Thirty seconds — score as many as you can. Sink one from the far side and it counts for three. Go.', 7000);
@@ -211,16 +210,12 @@ export function revealBasketball(ctx: GameContext): void {
     if (ended) return;
     ended = true;
     hideCounter();
-    // Keep the ball — rest it in front if it isn't in your hand.
-    if (mode !== 'held') {
-      const pp = ctx.playerPos();
-      ball.position.set(pp.x, BALL_R, pp.z - 1.4);
-      vel.set(0, 0, 0);
-    }
+    // The ball stays exactly where it is and remains a normal throwable ball —
+    // so you can keep tossing it (e.g. into the basket that now follows you).
     if (points >= REWARD_BASKET) {
       // Top tier — keep the basket: a two-legged hoop that waddles after you,
       // turned to face you so you can keep tossing the ball into it.
-      ctx.narrate(`${points} points. A genuine display. You keep the basket — it follows you now — and the ball. Both earned.`, 8000, { priority: true });
+      ctx.narrate('A genuine display. You keep the basket — it follows you now — and the ball. Both earned.', 8000, { priority: true });
       root.remove(hoop);
       ctx.setCompanion(makeWalkingBasket(), 0);
     } else if (points >= REWARD_GOLD) {
@@ -229,9 +224,9 @@ export function revealBasketball(ctx: GameContext): void {
       ballMat.emissive.setHex(0xc9912a);
       ballMat.emissiveIntensity = 0.5;
       ballMat.metalness = 0.5;
-      ctx.narrate(`${points} points. Respectable. The ball turns gold in your hands — a keepsake. No basket, though.`, 7000, { priority: true });
+      ctx.narrate('Respectable. The ball turns gold in your hands — a keepsake. No basket, though.', 7000, { priority: true });
     } else {
-      ctx.narrate(`${points} points. Modest. You keep the ball, at least. A consolation.`, 6500, { priority: true });
+      ctx.narrate('Modest. You keep the ball, at least. A consolation.', 6500, { priority: true });
     }
     // A new button to move on.
     const btn = spawnPedestalButton(root, new THREE.Vector3(4, 0, 3), () => ctx.advance(new THREE.Vector3(4, 0, 3)));

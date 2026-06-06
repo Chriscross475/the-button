@@ -9,6 +9,9 @@
 // FALLBACK: the browser's Web Speech `SpeechSynthesis` — used if /api/tts is
 // unreachable or playback is blocked.
 
+import { segment, hashLine } from './vo-shared';
+import voManifest from './vo-manifest.json';
+
 let enabled = true;
 let primed = false;
 let voice: SpeechSynthesisVoice | null = null;
@@ -17,12 +20,17 @@ const supported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
 const TTS_VOICE = 'bm_george'; // dry British male narrator
 const TTS_SPEED = 1.05;
-// Inserted silence per pause type — tuned by ear (kokoro's own pauses are off:
-// periods too short, em-dashes too long). Sentence ends (. ! ?) get a clear
-// pause; an em/en dash is the dramatic beat (a touch longer).
-const GAP_SENTENCE = 200;
-const GAP_DASH = 300;
-const MAX_SEGMENTS = 6; // beyond this, don't split (too many TTS calls)
+const MAX_SEGMENTS = 6; // beyond this, don't split the LIVE path (too many TTS calls)
+
+// Pre-baked narration: lines generated offline (npm run vo) ship as static WAVs
+// in public/vo/<hash>.wav, listed here. The runtime plays them instantly — no
+// /api/tts call, no server inference — which is what keeps the narrator snappy on
+// the slow Oracle box. Dynamic lines (scores) aren't baked → they use the live path.
+const BAKED = new Set<string>(voManifest as string[]);
+function prebakedUrl(text: string): string | null {
+  const h = hashLine(text);
+  return BAKED.has(h) ? `${import.meta.env.BASE_URL}vo/${h}.wav` : null;
+}
 
 // Voice source — switchable by the player. 'kokoro' = server /api/tts (the good
 // British neural voice, consistent everywhere); 'basic' = the browser's built-in
@@ -138,24 +146,39 @@ async function fetchTts(text: string, signal: AbortSignal): Promise<Blob> {
   return blob;
 }
 
-// Break a line into phrases + the pause that follows each. Sentence punctuation
-// (. ! ?) stays attached for natural intonation; dashes are dropped. Each phrase
-// is spoken on its own and we insert a controllable silence between.
-function segment(text: string): { text: string; gap: number }[] {
-  const out: { text: string; gap: number }[] = [];
-  const re = /\s*[—–]\s*|\s+-\s+|([.!?]+)\s+/g; // dash | spaced-hyphen | sentence-end
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    const isSentence = m[1] !== undefined;
-    const end = isSentence ? m.index + m[1].length : m.index; // keep . ! ?, drop dashes
-    const chunk = text.slice(last, end).trim();
-    if (chunk) out.push({ text: chunk, gap: isSentence ? GAP_SENTENCE : GAP_DASH });
-    last = m.index + m[0].length;
-  }
-  const tail = text.slice(last).trim();
-  if (tail) out.push({ text: tail, gap: 0 });
-  return out;
+// Play a single pre-baked WAV asset (pauses already baked in). Falls back to the
+// live path if the asset is missing/blocked.
+function playBaked(url: string, text: string, mySeq: number): void {
+  const a = new Audio(url);
+  a.volume = 1;
+  currentAudio = a;
+  a.onended = () => {
+    if (currentAudio === a) currentAudio = null;
+  };
+  a.onerror = () => {
+    if (mySeq === seq && enabled) liveSpeak(text, mySeq); // asset 404 → generate live
+  };
+  a.play().catch(() => {
+    if (mySeq === seq && enabled) liveSpeak(text, mySeq);
+  });
+}
+
+// The live path: split into phrases, fetch each from /api/tts, play with gaps.
+function liveSpeak(text: string, mySeq: number): void {
+  let parts = segment(text);
+  if (parts.length === 0 || parts.length > MAX_SEGMENTS) parts = [{ text, gap: 0 }];
+  const ctl = new AbortController();
+  abortCtl = ctl;
+  Promise.all(parts.map((p) => fetchTts(p.text, ctl.signal)))
+    .then((blobs) => {
+      if (mySeq !== seq || !enabled) return; // superseded while fetching
+      playSequence(blobs, parts.map((p) => p.gap), mySeq);
+    })
+    .catch((e) => {
+      if (e?.name === 'AbortError') return;
+      console.warn('[tts] /api/tts failed — Web Speech:', e?.message || e);
+      if (mySeq === seq && enabled) speakWebSpeech(text);
+    });
 }
 
 // Play WAV blobs back-to-back, waiting gaps[i] of silence after blob i.
@@ -193,23 +216,14 @@ export function speak(text: string): void {
     return;
   }
 
-  // Split into phrases (at sentence ends + dashes) so each is spoken on its own
-  // with a controllable silence between — kokoro's own pauses are uneven.
-  let parts = segment(text);
-  if (parts.length === 0 || parts.length > MAX_SEGMENTS) parts = [{ text, gap: 0 }];
-
-  const ctl = new AbortController();
-  abortCtl = ctl;
-  Promise.all(parts.map((p) => fetchTts(p.text, ctl.signal)))
-    .then((blobs) => {
-      if (mySeq !== seq || !enabled) return; // superseded while fetching
-      playSequence(blobs, parts.map((p) => p.gap), mySeq);
-    })
-    .catch((e) => {
-      if (e?.name === 'AbortError') return;
-      console.warn('[tts] /api/tts failed — Web Speech:', e?.message || e);
-      if (mySeq === seq && enabled) speakWebSpeech(text);
-    });
+  // Pre-baked asset → play it instantly (no server call). This covers the fixed
+  // narration; dynamic lines fall through to the live /api/tts path.
+  const baked = prebakedUrl(text);
+  if (baked) {
+    playBaked(baked, text, mySeq);
+    return;
+  }
+  liveSpeak(text, mySeq);
 }
 
 export function cancelSpeech(): void {

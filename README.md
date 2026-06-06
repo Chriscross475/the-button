@@ -6,9 +6,10 @@ several **experiences** (ducks, a forest, a train tunnel, doors, the button gag,
 a trainyard slingshot, hoops, a circus…), each with its own gag and an exit back
 to a fresh room.
 
-Built with **TypeScript + Three.js + Vite** — all geometry is code-generated, no
-binary assets (except `public/quack.mp3`). Desktop (mouse-look + WASD) and mobile
-(touch joystick + tap) controls ship together.
+Built with **TypeScript + Three.js + Vite** — all geometry is code-generated; the
+only binary assets are audio (`public/quack.mp3` + the pre-baked narration in
+`public/vo/`). Desktop (mouse-look + WASD) and mobile (touch joystick + tap)
+controls ship together.
 
 ## Run
 
@@ -20,11 +21,24 @@ npm run build    # → dist/  (built with base '/button/' for the Oracle deploy)
 
 ## Narrator (TTS)
 
-The narrator uses the server-side **Kokoro** voice (`bm_george`) via `POST /api/tts`
-— the same backend the Sandbox UI uses — played through a plain `<audio>`. In dev,
-Vite proxies `/api/tts` → `localhost:37777`; in production Caddy routes it to the
-Oracle Sandbox server. A **VOICE: KOKORO / BASIC** menu toggle switches to the
-browser's Web Speech voice, which is also the automatic fallback.
+Narration is **pre-baked to static WAV assets** (`public/vo/<hash>.wav`) and played
+directly at runtime — instant, with zero server inference. Generate them with:
+
+```sh
+npm run vo      # needs the local Sandbox kokoro at localhost:37777
+```
+
+`scripts/generate-vo.ts` scans the source for `narrate('...')` lines, synthesises each
+(kokoro `bm_george`, with the per-phrase pauses baked in), and writes a content-hashed
+WAV plus a manifest (`src/audio/vo-manifest.json`, imported by the runtime). Only
+new/changed lines regenerate; stale WAVs are pruned. Run it locally where kokoro is
+fast, then **commit** `public/vo/*.wav` + the manifest.
+
+At runtime a fixed line plays its bundled WAV; anything not baked — dynamic lines, or a
+missing asset — falls back to the live `POST /api/tts` kokoro (Vite proxies it to
+`localhost:37777` in dev; Caddy routes it to the Oracle server in prod), then to the
+browser's Web Speech voice. A **VOICE: KOKORO / BASIC** menu toggle forces the browser
+voice. Keep spoken lines as fixed string literals so they all pre-bake.
 
 ## Deploy
 

@@ -738,7 +738,7 @@ export function revealDucks(ctx: GameContext): void {
         }
       }
       ctx.narrate(
-        `The good-duck fence splinters. ${freed} rescued ducks waddle out, free — and so, conveniently, available again. More ducks for you. Hero.`,
+        'The good-duck fence splinters. The rescued ducks waddle out, free — and so, conveniently, available again. More ducks for you. Hero.',
         6500,
         { priority: true },
       );
