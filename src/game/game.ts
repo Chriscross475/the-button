@@ -300,9 +300,13 @@ export class Game {
     if (this.pendingLevel) return;
     const exp = pickExperience();
     const cam = this.camera.position;
+    // With a reference button, keep the player's offset from it (the room
+    // transforms around them). Without one (e.g. the buttons-grid finale), stand
+    // them a few metres clear of where the new button appears at (0,0,-2) — so it
+    // never spawns right on top of the player and traps them.
     const ref = buttonPos ?? cam;
-    const offX = cam.x - ref.x;
-    const offZ = cam.z - ref.z;
+    const offX = buttonPos ? cam.x - ref.x : 0;
+    const offZ = buttonPos ? cam.z - ref.z : 4;
     const yaw = getYaw();
     const pitch = getPitch();
     this.loadLevel('hub');
@@ -322,9 +326,13 @@ export class Game {
       return;
     }
     const cam = this.camera.position;
+    // With a reference button, keep the player's offset from it (the room
+    // transforms around them). Without one (e.g. the buttons-grid finale), stand
+    // them a few metres clear of where the new button appears at (0,0,-2) — so it
+    // never spawns right on top of the player and traps them.
     const ref = buttonPos ?? cam;
-    const offX = cam.x - ref.x;
-    const offZ = cam.z - ref.z;
+    const offX = buttonPos ? cam.x - ref.x : 0;
+    const offZ = buttonPos ? cam.z - ref.z : 4;
     const yaw = getYaw();
     const pitch = getPitch();
     this.loadLevel('hub');
