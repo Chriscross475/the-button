@@ -249,7 +249,7 @@ export class Game {
     this.canvas.requestPointerLock?.();
     // Opening line only on a real start (not when jumping into a test level),
     // and held until the good voice has loaded so it speaks in the right voice.
-    if (intro) onVoiceReady(() => narrate('There is a button. You know what to do.', 4000));
+    if (intro) onVoiceReady(() => narrate('There is a button. You know what to do.', 4000, { interruptible: true }));
   }
 
   private loadLevel(id: string): void {

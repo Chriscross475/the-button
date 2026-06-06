@@ -11,15 +11,21 @@ import { speak } from '../audio/tts';
 interface Line {
   text: string;
   hold: number; // ms visible at full opacity
+  interruptible?: boolean; // a low-prio line that the next line replaces at once
 }
 
 export interface NarrateOpts {
   /** Clear the queue + interrupt the current line and play this one NOW. */
   priority?: boolean;
+  /** A LOW-priority line: the next line (even an ordinary one) replaces it
+   *  immediately instead of queueing, so the player never has to wait it out.
+   *  Used for the idle intro line. */
+  interruptible?: boolean;
 }
 
 const queue: Line[] = [];
 let showing = false;
+let currentInterruptible = false; // is the line on screen a low-prio one?
 let el: HTMLDivElement | null = null;
 let timers: number[] = []; // pending fade-out / next-pump timeouts for the current line
 
@@ -34,10 +40,17 @@ function clearTimers(): void {
 }
 
 export function narrate(text: string, holdMs = 3200, opts?: NarrateOpts): void {
-  const line: Line = { text, hold: holdMs };
+  const line: Line = { text, hold: holdMs, interruptible: opts?.interruptible };
   if (opts?.priority) {
     queue.length = 0; // drop everything waiting — this line wins
     present(line, true); // interrupt the current line + speech, show immediately
+    return;
+  }
+  // If the line currently on screen is low-priority, don't wait it out — replace
+  // it now so the player hears this one straight away.
+  if (showing && currentInterruptible) {
+    queue.length = 0;
+    present(line, false);
     return;
   }
   queue.push(line);
@@ -57,6 +70,7 @@ function pump(): void {
 function present(line: Line, immediate: boolean): void {
   clearTimers();
   showing = true;
+  currentInterruptible = !!line.interruptible;
   const node = element();
   node.textContent = line.text;
   speak(line.text); // speak() cancels any current utterance — newest wins
