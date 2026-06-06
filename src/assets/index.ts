@@ -4,5 +4,7 @@
 //   const duck = createAsset('duck');
 import './library';
 import './infra';
+import './train';
 export { createAsset, hasAsset, assetIds, defineAsset, type AssetFactory } from './registry';
 export { type TrackParams, type TunnelFaceParams, makeRng } from './infra';
+export { trainStrike } from './train';

@@ -3,7 +3,7 @@ import type { GameContext } from '../game/types';
 import { buildExitRoom, RH } from './exit-room';
 import { addUpdater } from '../experiences/scheduler';
 import { thunder, trainHorn, pop } from '../audio/sfx';
-import { createAsset, makeRng } from '../assets';
+import { createAsset, makeRng, trainStrike } from '../assets';
 import { registerInteractable } from '../interactables/system';
 import { defineCombine, type Carryable } from '../game/combine';
 import { feedsTunnel } from './slingshot-state';
@@ -181,15 +181,9 @@ export function revealTunnel(ctx: GameContext): void {
       const t = trains[i];
       t.z += TRAIN_SPEED * t.dir * dt;
       t.group.position.z = t.z;
-      if (!ctx.isAirborne() && !ctx.isDead() && Math.abs(player.x - t.x) < 1.6 && Math.abs(player.z - t.z) < 1.9) {
-        if (ctx.isHolding('duck')) {
-          ctx.consumeHeld('duck'); // a duck in hand cushions the hit + you're knocked clear
-          ctx.launchPlayer(t.launch.clone()); // landing on the ground still kills you
-        } else {
-          ctx.die('train'); // nothing to soften it — flattened on the spot
-        }
-        cooldown = 2.5;
-      }
+      // Shared train behaviour: flattened on the spot, or (with a duck) knocked
+      // clear — though landing on the ground here still kills you.
+      if (trainStrike(ctx, t.group.position, t.launch)) cooldown = 2.5;
       if ((t.dir > 0 && t.z > WALL_T2 + 2) || (t.dir < 0 && t.z < WALL_T1 - 2)) {
         root.remove(t.group);
         trains.splice(i, 1);

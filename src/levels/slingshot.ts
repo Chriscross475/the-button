@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext, ControlMode } from '../game/types';
 import { addUpdater } from '../experiences/scheduler';
-import { createAsset } from '../assets';
+import { createAsset, trainStrike } from '../assets';
 import { spawnPedestalButton } from '../button/pedestal-button';
 import { registerInteractable } from '../interactables/system';
 import { whoosh, thunder, trainHorn, pop, thud, click } from '../audio/sfx';
@@ -265,6 +265,9 @@ export function revealSlingshot(ctx: GameContext): void {
       flyVel += 40 * dt;
       flyer.position.addScaledVector(flyDir, flyVel * dt);
       flyer.position.y += (0.45 - flyer.position.y) * Math.min(1, dt * 3);
+      // Shared train behaviour: a flying train flattens you, or knocks you back
+      // if you're holding a duck.
+      trainStrike(ctx, flyer.position, new THREE.Vector3(flyDir.x * 13, 16, flyDir.z * 13));
       const reach = flyer.position.length();
       if (!dirOpen(fireDir) && reach >= STOP_AT) {
         // blocked tunnel: the train slams to a halt at the barrier and sits there
@@ -383,6 +386,22 @@ export function revealSlingshot(ctx: GameContext): void {
   ctx.addObstacle(exit.obstacle);
 
   ctx.setRegions([{ minX: -34, maxX: 34, minZ: -34, maxZ: 34, floorY: 0 }]);
+
+  // Walk into the 2-track tunnel (the −Z one) and you pass through to the tunnel
+  // level — it's the same tunnel, entered from the slingshot end.
+  let leftToTunnel = false;
+  addUpdater(() => {
+    if (leftToTunnel) return true;
+    const p = ctx.playerPos();
+    if (p.z < -(MOUTH + 2) && Math.abs(p.x) < 2.6) {
+      leftToTunnel = true;
+      // Arrive down the tunnel run near the cabin (≈ z 40), facing in.
+      ctx.advanceTo('tunnel', new THREE.Vector3(0, 0, p.z - 42));
+      return true;
+    }
+    return false;
+  });
+
   ctx.narrate(
     'A crossroads. Four tunnels run off into the dark, and at their centre, a machine — aimed at something, and waiting. The narrator knows exactly what it does. The narrator says nothing.',
     8000,

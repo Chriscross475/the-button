@@ -270,23 +270,6 @@ function makeStatue(): THREE.Group {
   return g;
 }
 
-function makeTrain(): THREE.Group {
-  const g = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.6, metalness: 0.3 });
-  const trim = new THREE.MeshStandardMaterial({ color: 0x551111, emissive: 0xaa2200, emissiveIntensity: 0.6, roughness: 0.5 });
-  const hull = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.1, 4.2), body);
-  hull.position.y = 1.25;
-  hull.castShadow = true;
-  g.add(hull);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.5, 0.6), trim);
-  nose.position.set(0, 1.1, 2.2);
-  g.add(nose);
-  const lamp = new THREE.PointLight(0xff3300, 1.4, 9, 2);
-  lamp.position.set(0, 1.3, 2.6);
-  g.add(lamp);
-  return g;
-}
-
 function makeRock(): THREE.Mesh {
   const m = new THREE.Mesh(
     new THREE.DodecahedronGeometry(0.3),
@@ -418,7 +401,6 @@ defineAsset('tree', makeTree);
 defineAsset('campfire', makeCampfire);
 defineAsset('chicken-leg', makeChickenLeg);
 defineAsset('statue', makeStatue);
-defineAsset('train', makeTrain);
 defineAsset('rock', makeRock);
 defineAsset('stump', makeStump);
 defineAsset('arm', makeArm);
