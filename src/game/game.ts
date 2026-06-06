@@ -1,0 +1,670 @@
+import * as THREE from 'three';
+import { CONFIG } from '../config';
+import {
+  createCamera,
+  updatePlayer,
+  updateLook,
+  getForwardXZ,
+  setYaw,
+  getYaw,
+  getPitch,
+  setPitch,
+  setWheel,
+  floorYAt,
+} from '../controls/player-camera';
+import { createTouchInput } from '../controls/input';
+import {
+  tickInteractables,
+  pressUse,
+  getAllInteractables,
+  clearInteractables,
+} from '../interactables/system';
+import { findTapTarget } from '../controls/tap-target';
+import { updateInteractPrompt } from '../ui/interact-prompt';
+import { narrate } from '../ui/narrator';
+import { createCarry, type Carry } from './combine';
+import { ensureAudio, thud } from '../audio/sfx';
+import { primeTts, onVoiceReady } from '../audio/tts';
+import { showMainMenu } from '../ui/main-menu';
+import { createAsset } from '../assets';
+import { addUpdater, tickUpdaters, clearUpdaters } from '../experiences/scheduler';
+import { spawnPedestalButton } from '../button/pedestal-button';
+import type { GameContext, Level, LevelInstance, ControlMode } from './types';
+import { pick } from '../experiences/util';
+import { pickExperience, getExperience, setLastExperience } from '../experiences/registry';
+
+// Launch (flight) tuning.
+const FLIGHT_GRAVITY = 16;
+const FLIGHT_STEER = 2.2; // how hard "look" curves your trajectory in the air
+
+const DEATH_LINES = [
+  'You died. The button does not mourn.',
+  'Dead. We will say no more about it.',
+  'That went poorly. Try the other one.',
+  'You have been removed from the situation. Forcefully.',
+  'Physics: 1. You: 0.',
+];
+
+export class Game {
+  readonly scene = new THREE.Scene();
+  readonly camera = createCamera();
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly canvas: HTMLCanvasElement;
+  private readonly input: ReturnType<typeof createTouchInput>;
+  readonly ctx: GameContext;
+
+  private levels = new Map<string, Level>();
+  private current: LevelInstance | null = null;
+
+  private mode: 'play' | 'dead' = 'play';
+  private started = false; // false while the boot main menu is up
+  private paused = false; // true while the in-game pause menu is open
+  private airborne = false;
+  private launchVel = new THREE.Vector3();
+
+  // Fade transition.
+  private fadeEl: HTMLDivElement;
+  private fadeValue = 0;
+  private fadeTarget = 0;
+  private pendingLevel: string | null = null;
+  private rHoldTimer = 0; // hold-R-to-die timer
+
+  private deathEl: HTMLDivElement;
+  private readonly forward = new THREE.Vector3();
+
+  private carry!: Carry; // the single global dual-hand carry, created in the ctor
+  // A pet that follows the player across levels (scene-attached, Game-driven).
+  private companion: THREE.Object3D | null = null;
+  private companionFollow = false;
+  private companionBob = 0;
+  private companionBaseY = 0;
+  private controlMode: ControlMode | null = null; // e.g. operating the slingshot
+  // The unicycle, shown under the camera (visible when you look down).
+  private wheelMesh: THREE.Group | null = null;
+  private wheelSpinG: THREE.Object3D | null = null;
+  private wheelPrev = new THREE.Vector2();
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.fadeEl = document.getElementById('fade') as HTMLDivElement;
+    this.deathEl = document.getElementById('death') as HTMLDivElement;
+
+    this.ctx = {
+      scene: this.scene,
+      camera: this.camera,
+      levelRoot: new THREE.Group(),
+      narrate,
+      playerPos: () => this.camera.position,
+      bounds: { minX: -5, maxX: 5, minZ: -5, maxZ: 5 },
+      addObstacle: (o) => this.current?.obstacles.push(o),
+      removeObstacle: (o) => {
+        const arr = this.current?.obstacles;
+        if (!arr) return;
+        const i = arr.indexOf(o);
+        if (i >= 0) arr.splice(i, 1);
+      },
+      spawnButton: (pos) => this.spawnButton(pos),
+      goToLevel: (id) => this.goToLevel(id),
+      returnToHub: () => this.goToLevel('hub'),
+      launchPlayer: (vel) => this.launch(vel),
+      die: (cause) => this.die(cause),
+      advance: (buttonPos) => this.advance(buttonPos),
+      advanceTo: (expId, buttonPos) => this.advanceTo(expId, buttonPos),
+      openRoom: (opts) => this.current?.openRoom?.(opts),
+      setRoomButton: (onPress) => this.current?.setButtonAction?.(onPress),
+      sinkRoomButton: () => this.current?.sinkButton?.(),
+      addCarryable: (c) => this.carry.addCarryable(c),
+      removeCarryable: (c) => this.carry.removeCarryable(c),
+      addTarget: (t) => this.carry.addTarget(t),
+      removeTarget: (t) => this.carry.removeTarget(t),
+      isHolding: (kind) => this.carry.holding(kind),
+      consumeHeld: (kind) => this.carry.consume(kind),
+      heldKind: (side) => this.carry.inHand(side),
+      putInHand: (side, c) => this.carry.putInHand(side, c),
+      setCompanion: (mesh, baseY = 0) => {
+        if (this.companion) this.scene.remove(this.companion);
+        this.scene.add(mesh); // on the scene → survives level transitions
+        this.companion = mesh;
+        this.companionBaseY = baseY;
+        this.companionFollow = false;
+      },
+      setWheel: (on) => this.setWheelMode(on),
+      setControlMode: (cm) => {
+        this.controlMode = cm;
+      },
+      setBounds: (b) => {
+        if (this.current) {
+          this.current.bounds = b;
+          this.current.regions = undefined;
+        }
+      },
+      setRegions: (regions) => {
+        if (this.current) this.current.regions = regions;
+      },
+      setLanding: (onLand, isOverSolid) => {
+        if (this.current) {
+          this.current.onLand = onLand;
+          this.current.isOverSolid = isOverSolid;
+        }
+      },
+      setFlightWalls: (walls) => {
+        if (this.current) this.current.flightWalls = walls;
+      },
+      isAirborne: () => this.airborne,
+      isDead: () => this.mode === 'dead',
+    };
+
+    this.carry = createCarry(this.ctx); // the single global carry system
+
+    this.input = createTouchInput(canvas, {
+      onInteract: () => this.onInteract(),
+      onTap: (x, y, canPress) => this.onTap(x, y, canPress),
+      onFirstInput: () => this.onFirstInput(),
+    });
+
+    window.addEventListener('resize', () => this.onResize());
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyR' || e.repeat) return;
+      if (this.mode === 'dead') {
+        this.restart();
+        return;
+      }
+      // Hold R while alive to off yourself manually (handy for testing death).
+      if (this.started && !this.paused && this.mode === 'play') {
+        this.rHoldTimer = window.setTimeout(() => {
+          this.rHoldTimer = 0;
+          this.die('manual');
+        }, 600);
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyR' && this.rHoldTimer) {
+        clearTimeout(this.rHoldTimer);
+        this.rHoldTimer = 0;
+      }
+    });
+    this.deathEl.addEventListener('click', () => {
+      if (this.mode === 'dead') this.restart();
+    });
+
+    // Desktop: pressing Esc releases pointer lock — treat that as "open menu"
+    // (the browser eats the Esc keydown, so we react to the unlock instead).
+    document.addEventListener('pointerlockchange', () => {
+      const unlocked = document.pointerLockElement !== this.canvas;
+      if (unlocked && this.started && !this.paused && this.mode === 'play' && !this.pendingLevel) {
+        this.openMenu();
+      }
+    });
+    // Mobile / unlocked: an on-screen button opens the menu.
+    const mb = document.getElementById('menu-button');
+    if (mb) mb.addEventListener('click', () => this.openMenu());
+  }
+
+  private openMenu(): void {
+    if (this.paused || !this.started) return;
+    this.paused = true;
+    document.exitPointerLock?.();
+    showMainMenu({
+      onResume: () => {
+        this.paused = false;
+        this.canvas.requestPointerLock?.();
+      },
+      onRestart: () => {
+        this.paused = false;
+        this.goToLevel('hub');
+      },
+    });
+  }
+
+  registerLevel(level: Level): void {
+    this.levels.set(level.id, level);
+  }
+
+  /** Initial boot into a level (no fade). The world renders but doesn't accept
+   *  gameplay input until start() is called (i.e. while the main menu is up). */
+  boot(id: string): void {
+    this.loadLevel(id);
+  }
+
+  /** Leave the main menu and begin playing. Called from the menu's BEGIN
+   *  button (a user gesture — so audio + pointer-lock can engage here). */
+  start(intro = true): void {
+    if (this.started) return;
+    this.started = true;
+    ensureAudio();
+    primeTts();
+    const hint = document.getElementById('hint');
+    if (hint) {
+      hint.style.display = 'block';
+      hint.style.opacity = '1';
+    }
+    const mb = document.getElementById('menu-button');
+    if (mb) mb.style.display = 'flex';
+    this.canvas.requestPointerLock?.();
+    // Opening line only on a real start (not when jumping into a test level),
+    // and held until the good voice has loaded so it speaks in the right voice.
+    if (intro) onVoiceReady(() => narrate('There is a button. You know what to do.', 4000));
+  }
+
+  private loadLevel(id: string): void {
+    const level = this.levels.get(id);
+    if (!level) {
+      console.error(`unknown level: ${id}`);
+      return;
+    }
+    if (this.current) {
+      this.scene.remove(this.current.root);
+      this.current.dispose?.();
+    }
+    clearInteractables();
+    clearUpdaters();
+    this.controlMode = null; // never carry an operating mode across levels
+    this.setWheelMode(false); // the unicycle is per-level (also clears its visual)
+    this.carry.clearLevel(); // drop the leaving level's carryables; persistent items carry over
+    this.mode = 'play';
+    this.airborne = false;
+    this.launchVel.set(0, 0, 0);
+    this.scene.fog = null;
+    this.scene.background = null;
+
+    const instance = level.build(this.ctx);
+    this.current = instance;
+    this.ctx.bounds = instance.bounds;
+    this.ctx.levelRoot = instance.root;
+    this.scene.add(instance.root);
+
+    this.camera.position.copy(instance.spawn.pos);
+    this.camera.position.y = CONFIG.PLAYER_HEIGHT;
+    setYaw(instance.spawn.yaw);
+    this.camera.rotation.set(0, instance.spawn.yaw, 0, 'YXZ');
+  }
+
+  private goToLevel(id: string): void {
+    if (this.pendingLevel) return;
+    this.pendingLevel = id;
+    this.fadeTarget = 1;
+  }
+
+  // End-room button: rebuild a fresh enclosed hub room and immediately run the
+  // next level's transform on it — no fade. The player does NOT teleport: we
+  // preserve their offset from the button they pressed (and their look), so they
+  // end up in the same spot relative to the new room's button. The result reads
+  // as "the room transformed around me", not "I was moved".
+  private advance(buttonPos?: THREE.Vector3): void {
+    if (this.pendingLevel) return;
+    const exp = pickExperience();
+    const cam = this.camera.position;
+    const ref = buttonPos ?? cam;
+    const offX = cam.x - ref.x;
+    const offZ = cam.z - ref.z;
+    const yaw = getYaw();
+    const pitch = getPitch();
+    this.loadLevel('hub');
+    exp?.run(this.ctx);
+    // Place the player at the same offset from the new (hub) button at (0,0,-2).
+    this.camera.position.set(0 + offX, CONFIG.PLAYER_HEIGHT, -2 + offZ);
+    setYaw(yaw);
+    setPitch(pitch);
+  }
+
+  // Like advance, but to a specific experience (e.g. through a broken-wall hole).
+  private advanceTo(expId: string, buttonPos?: THREE.Vector3): void {
+    if (this.pendingLevel) return;
+    const exp = getExperience(expId);
+    if (!exp) {
+      this.advance(buttonPos);
+      return;
+    }
+    const cam = this.camera.position;
+    const ref = buttonPos ?? cam;
+    const offX = cam.x - ref.x;
+    const offZ = cam.z - ref.z;
+    const yaw = getYaw();
+    const pitch = getPitch();
+    this.loadLevel('hub');
+    setLastExperience(expId); // so the next random pick won't repeat it
+    exp.run(this.ctx);
+    this.camera.position.set(0 + offX, CONFIG.PLAYER_HEIGHT, -2 + offZ);
+    setYaw(yaw);
+    setPitch(pitch);
+  }
+
+  private spawnButton(pos: THREE.Vector3): void {
+    if (!this.current) return;
+    const press = this.current.defaultButtonPress ?? (() => {});
+    const spawned = spawnPedestalButton(this.current.root, pos, press);
+    this.current.obstacles.push(spawned.obstacle);
+    const g = spawned.group;
+    g.scale.setScalar(0.01);
+    let t = 0;
+    addUpdater((dt: number): boolean => {
+      t += dt;
+      const k = Math.min(1, t / 0.5);
+      const eased = 1 - Math.pow(1 - k, 3);
+      g.scale.setScalar(0.01 + eased * 0.99);
+      return k >= 1;
+    });
+  }
+
+  private launch(vel: THREE.Vector3): void {
+    if (this.airborne || this.mode === 'dead') return;
+    this.airborne = true;
+    this.launchVel.copy(vel);
+    thud();
+  }
+
+  private die(_cause?: string, wallHit?: { pos: THREE.Vector3; dir: THREE.Vector3 }): void {
+    if (this.mode === 'dead') return;
+    this.mode = 'dead';
+    this.airborne = false;
+    this.carry.dropAll(); // dying drops everything you were carrying
+    narrate(pick(DEATH_LINES), 6000, { priority: true }); // death lands on the moment
+
+    const fwd = getForwardXZ(this.forward).clone();
+    const outline = createAsset('crime-outline');
+    const n = new THREE.Vector3(0, 0, 1); // outward normal of the wall you hit
+    if (wallHit) {
+      // Splatted against a wall: leave the chalk ON the wall, facing back the way
+      // you came. (Yes. On the wall.)
+      n.set(-wallHit.dir.x, 0, -wallHit.dir.z);
+      if (n.lengthSq() < 1e-4) n.set(0, 0, 1);
+      n.normalize();
+      outline.position.copy(wallHit.pos).addScaledVector(n, 0.06);
+      outline.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
+    } else {
+      // Crime-scene chalk outline on the floor where you fell.
+      outline.position.set(this.camera.position.x, 0.02, this.camera.position.z);
+      outline.rotation.y = Math.atan2(fwd.x, fwd.z); // lie along your last facing
+    }
+    this.current?.root.add(outline);
+
+    // Death cam: pull back into a shot that frames the body — over it on the
+    // floor, or in front of the wall it's now stuck to.
+    const startX = this.camera.position.x;
+    const startZ = this.camera.position.z;
+    const startY = this.camera.position.y;
+    const startPitch = this.camera.rotation.x;
+    let targetX: number, targetY: number, targetZ: number, targetPitch: number;
+    if (wallHit) {
+      setYaw(Math.atan2(n.x, n.z)); // turn to face the wall
+      this.camera.rotation.y = Math.atan2(n.x, n.z);
+      targetX = wallHit.pos.x + n.x * 5.5;
+      targetZ = wallHit.pos.z + n.z * 5.5;
+      targetY = wallHit.pos.y + 1.4;
+      targetPitch = -0.22;
+    } else {
+      targetX = startX - fwd.x * 6;
+      targetZ = startZ - fwd.z * 6;
+      targetY = 5.5;
+      targetPitch = -0.82;
+    }
+    let t = 0;
+    addUpdater((dt) => {
+      if (this.mode !== 'dead') return true; // restarted
+      t += dt;
+      const k = Math.min(1, t / 1.6);
+      const e = 1 - Math.pow(1 - k, 3);
+      this.camera.position.set(
+        startX + (targetX - startX) * e,
+        startY + (targetY - startY) * e,
+        startZ + (targetZ - startZ) * e,
+      );
+      this.camera.rotation.x = startPitch + (targetPitch - startPitch) * e;
+      return k >= 1;
+    });
+
+    this.deathEl.style.display = 'flex';
+    requestAnimationFrame(() => {
+      this.deathEl.style.opacity = '1';
+    });
+  }
+
+  private restart(): void {
+    this.deathEl.style.opacity = '0';
+    window.setTimeout(() => {
+      this.deathEl.style.display = 'none';
+    }, 400);
+    this.goToLevel('hub');
+  }
+
+  // ── Input handlers ──
+  private playable(): boolean {
+    return this.started && !this.paused && this.mode === 'play' && !this.airborne && !this.pendingLevel;
+  }
+
+  private onInteract(): void {
+    if (!this.started || this.paused) return;
+    if (this.mode === 'dead') {
+      this.restart();
+      return;
+    }
+    if (this.controlMode) {
+      this.controlMode.onInteract?.(); // the lever, while operating
+      return;
+    }
+    if (this.playable()) pressUse();
+  }
+
+  private onTap(x: number, y: number, canPress: boolean): void {
+    if (!this.started || this.paused) return;
+    if (this.mode === 'dead') {
+      this.restart();
+      return;
+    }
+    if (!this.playable() || !canPress) return;
+    const it = findTapTarget(x, y, this.canvas, this.camera, getAllInteractables());
+    if (!it) return;
+    const dx = it.position.x - this.camera.position.x;
+    const dz = it.position.z - this.camera.position.z;
+    if (Math.hypot(dx, dz) <= it.radius) it.onUse();
+  }
+
+  private onFirstInput(): void {
+    ensureAudio();
+    primeTts();
+    const hint = document.getElementById('hint');
+    if (hint) {
+      hint.style.opacity = '0';
+      window.setTimeout(() => {
+        hint.style.display = 'none';
+      }, 900);
+    }
+  }
+
+  private onResize(): void {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  // ── Per-frame ──
+  tick(dt: number): void {
+    this.input.tickInput(dt);
+
+    const inControl = this.controlMode !== null;
+    if (this.mode === 'play' && this.started && !this.paused) {
+      if (this.controlMode) {
+        this.controlMode.update(dt, this.input); // operating a machine: it owns the camera
+      } else if (this.airborne) {
+        this.flyStep(dt);
+      } else {
+        const lvl = this.current;
+        if (lvl) {
+          const regions = lvl.regions ?? [lvl.bounds];
+          updatePlayer(this.camera, this.input, dt, regions, lvl.obstacles);
+        }
+      }
+    }
+
+    this.carry.tick(dt, this.mode === 'play' && this.started && !this.paused && !inControl);
+    this.updateCompanion(dt);
+    this.updateWheelVisual();
+
+    // World keeps simulating even while dead.
+    tickInteractables(dt, this.camera.position, getForwardXZ(this.forward));
+    this.current?.update?.(dt);
+    tickUpdaters(dt);
+    updateInteractPrompt(this.camera, this.canvas);
+
+    this.updateFade(dt);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  // A pet (the baby wolf) trots after the player; persists across levels.
+  private updateCompanion(dt: number): void {
+    const c = this.companion;
+    if (!c || this.mode !== 'play' || !this.started) return;
+    const p = this.camera.position;
+    const dx = p.x - c.position.x;
+    const dz = p.z - c.position.z;
+    const dist = Math.hypot(dx, dz) || 1;
+    if (!this.companionFollow && dist < 4) this.companionFollow = true; // joins you once you're near
+    if (this.companionFollow) {
+      let moving = false;
+      if (dist > 1.6) {
+        const sp = Math.min(2.8 * dt, dist - 1.4);
+        c.position.x += (dx / dist) * sp;
+        c.position.z += (dz / dist) * sp;
+        moving = true;
+      }
+      c.rotation.y = Math.atan2(-dz, dx);
+      if (moving) {
+        // wobble (bob + waddle tilt) ONLY while it's actually moving
+        this.companionBob += dt * 9;
+        c.position.y = this.companionBaseY + Math.abs(Math.sin(this.companionBob)) * 0.08;
+        c.rotation.z = Math.sin(this.companionBob) * 0.12;
+      } else {
+        c.position.y += (this.companionBaseY - c.position.y) * Math.min(1, dt * 8); // settle
+        c.rotation.z *= Math.max(0, 1 - dt * 8);
+      }
+    }
+  }
+
+  // The unicycle: movement mode + a visual pinned under the camera.
+  private setWheelMode(on: boolean): void {
+    setWheel(on);
+    if (on) {
+      if (!this.wheelMesh) {
+        const { group, spin } = this.makeUnicycle();
+        this.wheelMesh = group;
+        this.wheelSpinG = spin;
+        this.scene.add(group);
+        this.wheelPrev.set(this.camera.position.x, this.camera.position.z);
+      }
+    } else if (this.wheelMesh) {
+      this.scene.remove(this.wheelMesh);
+      this.wheelMesh = null;
+      this.wheelSpinG = null;
+    }
+  }
+
+  private updateWheelVisual(): void {
+    const w = this.wheelMesh;
+    if (!w) return;
+    const cam = this.camera.position;
+    w.position.set(cam.x, cam.y - CONFIG.PLAYER_HEIGHT, cam.z); // at your feet
+    w.rotation.y = getYaw();
+    // roll the wheel by how far you moved along your facing
+    const dx = cam.x - this.wheelPrev.x;
+    const dz = cam.z - this.wheelPrev.y;
+    const fwd = getForwardXZ(this.forward);
+    if (this.wheelSpinG) this.wheelSpinG.rotation.x -= (dx * fwd.x + dz * fwd.z) / 0.42;
+    this.wheelPrev.set(cam.x, cam.z);
+  }
+
+  private makeUnicycle(): { group: THREE.Group; spin: THREE.Group } {
+    const g = new THREE.Group();
+    const dark = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.9, flatShading: true });
+    const metal = new THREE.MeshStandardMaterial({ color: 0xb0b4bd, metalness: 0.7, roughness: 0.4, flatShading: true });
+    const seatMat = new THREE.MeshStandardMaterial({ color: 0x7a1414, roughness: 0.7 });
+    const spin = new THREE.Group(); // the rolling part (tyre + hub + pedals)
+    spin.position.y = 0.42;
+    g.add(spin);
+    const tyre = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.12, 12, 24), dark);
+    tyre.rotation.y = Math.PI / 2; // axle left-right → rolls forward
+    spin.add(tyre);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.2, 8), metal);
+    hub.rotation.z = Math.PI / 2;
+    spin.add(hub);
+    for (const s of [-1, 1]) {
+      const ped = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.09), metal);
+      ped.position.set(s * 0.18, 0, 0);
+      spin.add(ped);
+    }
+    const fork = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.5, 8), metal);
+    fork.position.y = 0.42 + 0.27;
+    g.add(fork);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, 0.2), seatMat);
+    seat.position.y = 0.42 + 0.55;
+    g.add(seat);
+    return { group: g, spin };
+  }
+
+  private flyStep(dt: number): void {
+    // You steer by looking: the horizontal velocity rotates toward where the
+    // camera faces, keeping its speed; gravity arcs you down.
+    updateLook(this.camera, this.input);
+    const sp = Math.hypot(this.launchVel.x, this.launchVel.z);
+    if (sp > 0.01) {
+      const fwd = getForwardXZ(this.forward);
+      let dx = this.launchVel.x / sp + fwd.x * FLIGHT_STEER * dt;
+      let dz = this.launchVel.z / sp + fwd.z * FLIGHT_STEER * dt;
+      const nl = Math.hypot(dx, dz) || 1;
+      this.launchVel.x = (dx / nl) * sp;
+      this.launchVel.z = (dz / nl) * sp;
+    }
+    this.launchVel.y -= FLIGHT_GRAVITY * dt;
+    this.camera.position.addScaledVector(this.launchVel, dt);
+
+    const p = this.camera.position;
+    // Slam into an elevated room's wall mid-flight → dead, chalk left on the wall.
+    const walls = this.current?.flightWalls;
+    if (walls) {
+      for (const wbox of walls) {
+        if (
+          p.x >= wbox.minX && p.x <= wbox.maxX &&
+          p.y >= wbox.minY && p.y <= wbox.maxY &&
+          p.z >= wbox.minZ && p.z <= wbox.maxZ
+        ) {
+          this.airborne = false;
+          this.die('wall', { pos: p.clone(), dir: this.launchVel.clone() });
+          return;
+        }
+      }
+    }
+    const regions = this.current?.regions ?? (this.current ? [this.current.bounds] : []);
+    const fy = floorYAt(p.x, p.z, p.y, regions);
+    // Land on the ground anytime; land on an elevated floor only while DESCENDING
+    // (so you can't pop up onto a platform from underneath).
+    if (fy !== null && p.y <= fy + CONFIG.PLAYER_HEIGHT && (fy < 0.5 || this.launchVel.y <= 0)) {
+      p.y = fy + CONFIG.PLAYER_HEIGHT;
+      this.airborne = false;
+      this.current?.onLand?.(p.clone());
+    } else if (fy === null && p.y < -4) {
+      // Sailed past the edge and fell into the void.
+      this.airborne = false;
+      this.die('void');
+    }
+  }
+
+  private updateFade(dt: number): void {
+    const speed = 3.2; // ~0.3s fades
+    if (this.fadeValue < this.fadeTarget) {
+      this.fadeValue = Math.min(this.fadeTarget, this.fadeValue + speed * dt);
+    } else if (this.fadeValue > this.fadeTarget) {
+      this.fadeValue = Math.max(this.fadeTarget, this.fadeValue - speed * dt);
+    }
+    this.fadeEl.style.opacity = String(this.fadeValue);
+    if (this.pendingLevel && this.fadeValue >= 1) {
+      this.loadLevel(this.pendingLevel);
+      this.pendingLevel = null;
+      this.fadeTarget = 0;
+    }
+  }
+}

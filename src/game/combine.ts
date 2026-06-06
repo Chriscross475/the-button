@@ -1,0 +1,340 @@
+import * as THREE from 'three';
+import type { GameContext } from './types';
+import { createAsset } from '../assets';
+import { setHandItem } from '../ui/hands';
+
+// CARRY + COMBINE — the shared interaction framework, now DUAL-HANDED.
+//
+// The player has TWO hands, each shown as an arm and each able to carry its own
+// item. LEFT click / left-side touch drives the LEFT hand; RIGHT click /
+// right-side touch drives the RIGHT hand. Per hand: empty → grab what you look
+// at; holding → tap (use, e.g. swing), hold-release (throw), or click-onto a
+// target (combine recipe). A bottom-of-screen HUD labels each hand's item.
+//
+// Recipes are global rules: defineCombine('duck','campfire', fn).
+
+const TAP_MS = 250;
+const AIM_DIST = 1.6; // how far ahead the "click on" probe point sits
+const GRAB_DIST = 2.6; // max reach to grab something you're looking at
+
+export interface Carryable {
+  kind: string;
+  object: THREE.Object3D; // raycast target + the thing that gets pinned
+  /** Short tap while held with no combine target (e.g. an axe swing). */
+  onTap?: () => void;
+  /** Hold-and-release while held with no combine (e.g. throw). charge 0..1. */
+  onThrow?: (charge: number) => void;
+  onGrab?: () => void;
+  onRelease?: () => void;
+  /** Per-frame while held: set orientation/animation. Position is handled by
+   *  the framework; this is called after, with the camera quaternion + forward. */
+  heldUpdate?: (dt: number, object: THREE.Object3D, camQuat: THREE.Quaternion, forward: THREE.Vector3) => void;
+  heldDist?: number;
+  heldDrop?: number;
+  heldRight?: number;
+  /** Stays in its hand across level changes (its object must live on the scene,
+   *  not a level root). E.g. a cooked duck carried from the forest onward. */
+  persistent?: boolean;
+}
+
+export interface CombineTarget {
+  kind: string;
+  position: THREE.Vector3; // world position (live reference is fine)
+  radius: number;
+}
+
+export interface CombineEnv {
+  ctx: GameContext;
+  carry: Carry;
+  side: 'left' | 'right'; // which hand performed the combine
+}
+
+// Return true to KEEP the held item in hand (e.g. a tool breaking a block);
+// otherwise it's released after the combine (e.g. a key spent in a lock).
+type Recipe = (held: Carryable, target: CombineTarget, env: CombineEnv) => void | boolean;
+const recipes = new Map<string, Recipe>();
+
+/** Register a global combine rule: holding `heldKind` + clicking `targetKind`. */
+export function defineCombine(heldKind: string, targetKind: string, fn: Recipe): void {
+  recipes.set(heldKind + '>' + targetKind, fn);
+}
+
+export interface Carry {
+  addCarryable(c: Carryable): void;
+  removeCarryable(c: Carryable): void;
+  addTarget(t: CombineTarget): void;
+  removeTarget(t: CombineTarget): void;
+  /** The item in either hand (right preferred), or null. */
+  held(): Carryable | null;
+  /** Drive the hands each frame (called by the Game). `active` = in play. */
+  tick(dt: number, active: boolean): void;
+  /** Drop everything registered for the level being left, keeping the hands/arms
+   *  and any PERSISTENT held items (which carry to the next level). */
+  clearLevel(): void;
+  /** Put an item directly into a hand (e.g. a recipe result). */
+  putInHand(side: 'left' | 'right', c: Carryable): void;
+  /** Drop EVERYTHING, including persistent items (used on death). */
+  dropAll(): void;
+  /** The kind held in a hand, or null. */
+  inHand(side: 'left' | 'right'): string | null;
+  /** True if either hand holds an item of this kind. */
+  holding(kind: string): boolean;
+  /** Remove one held item of this kind (its mesh + the hand). Returns true if one
+   *  was consumed (e.g. a duck crushed to soften a train). */
+  consume(kind: string): boolean;
+}
+
+type Side = 'left' | 'right';
+interface Hand {
+  item: Carryable | null;
+  pressing: boolean;
+  pressStart: number;
+  arm: THREE.Object3D;
+}
+
+// ONE global instance, created once by the Game. The Game drives it via tick()
+// and resets the per-level registry via clearLevel(). Levels register their
+// carryables/targets through ctx (ctx.addCarryable / ctx.addTarget / …).
+export function createCarry(ctx: GameContext): Carry {
+  const carryables: Carryable[] = [];
+  const targets: CombineTarget[] = [];
+  let playing = false; // true while in play (set each tick by the Game)
+
+  const canvas = document.getElementById('scene') as HTMLCanvasElement | null;
+  const forward = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  const rightV = new THREE.Vector3();
+  const camQuat = new THREE.Quaternion();
+  const raycaster = new THREE.Raycaster();
+
+  // Always-present arms (one per hand), attached to the SCENE so they persist
+  // across levels; shown only when the active level actually uses the carry.
+  const makeArm = (side: Side): THREE.Object3D => {
+    const a = createAsset('arm');
+    if (side === 'left') a.scale.x *= -1; // mirror for the off-hand
+    a.visible = false;
+    ctx.scene.add(a);
+    return a;
+  };
+  const hands: Record<Side, Hand> = {
+    left: { item: null, pressing: false, pressStart: 0, arm: makeArm('left') },
+    right: { item: null, pressing: false, pressStart: 0, arm: makeArm('right') },
+  };
+
+  const label = (side: Side) => setHandItem(side, hands[side].item?.kind ?? null);
+  const heldInAnyHand = (c: Carryable) => hands.left.item === c || hands.right.item === c;
+
+  const pinHand = (side: Side, dt: number) => {
+    const h = hands[side];
+    ctx.camera.getWorldDirection(forward);
+    rightV.crossVectors(forward, up).normalize();
+    const cam = ctx.camera.position;
+    const ro = (h.item?.heldRight ?? 0.42) * (side === 'left' ? -1 : 1);
+    const d = h.item?.heldDist ?? 0.85;
+    const drop = h.item?.heldDrop ?? 0.45;
+    const hx = cam.x + forward.x * d + rightV.x * ro;
+    const hz = cam.z + forward.z * d + rightV.z * ro;
+    const yaw = Math.atan2(forward.x, forward.z) + Math.PI;
+    ctx.camera.getWorldQuaternion(camQuat);
+    // The arm is view-locked (forearm comes up from the screen bottom to the
+    // hand) and sits a touch lower than the item it grips.
+    h.arm.position.set(hx, cam.y + forward.y * d - drop - 0.12, hz);
+    h.arm.quaternion.copy(camQuat);
+    if (h.item) {
+      h.item.object.position.set(hx, cam.y + forward.y * d - drop, hz);
+      if (h.item.heldUpdate) h.item.heldUpdate(dt, h.item.object, camQuat, forward);
+      else h.item.object.rotation.set(0, yaw, 0);
+    }
+  };
+
+  const carry: Carry = {
+    addCarryable: (c) => carryables.push(c),
+    removeCarryable: (c) => {
+      const i = carryables.indexOf(c);
+      if (i >= 0) carryables.splice(i, 1);
+      for (const side of ['left', 'right'] as Side[]) {
+        if (hands[side].item === c) {
+          hands[side].item = null;
+          label(side);
+        }
+      }
+    },
+    addTarget: (t) => targets.push(t),
+    removeTarget: (t) => {
+      const i = targets.indexOf(t);
+      if (i >= 0) targets.splice(i, 1);
+    },
+    held: () => hands.right.item ?? hands.left.item,
+    tick: (dt, active) => {
+      playing = active;
+      // Both arms are ALWAYS shown while in play (empty hands included), not just
+      // in levels that register carryables.
+      hands.left.arm.visible = active;
+      hands.right.arm.visible = active;
+      if (!active) return;
+      pinHand('left', dt);
+      pinHand('right', dt);
+    },
+    clearLevel: () => {
+      // Whatever's IN your hands carries to the next level (re-parented to the
+      // scene so it survives the old level root being removed). Only the level's
+      // un-held ground items are dropped.
+      for (const side of ['left', 'right'] as Side[]) {
+        const h = hands[side];
+        if (h.item) ctx.scene.add(h.item.object);
+        h.pressing = false;
+        h.arm.visible = false;
+        label(side);
+      }
+      carryables.length = 0;
+      targets.length = 0;
+    },
+    putInHand: (side, c) => {
+      hands[side].item = c;
+      c.onGrab?.();
+      label(side);
+    },
+    dropAll: () => {
+      for (const side of ['left', 'right'] as Side[]) {
+        const h = hands[side];
+        if (h.item) {
+          h.item.onRelease?.();
+          h.item.object.parent?.remove(h.item.object); // dying drops everything
+          h.item = null;
+        }
+        h.pressing = false;
+        h.arm.visible = false;
+        label(side);
+      }
+    },
+    inHand: (side) => hands[side].item?.kind ?? null,
+    holding: (kind) => hands.left.item?.kind === kind || hands.right.item?.kind === kind,
+    consume: (kind) => {
+      for (const side of ['right', 'left'] as Side[]) {
+        const h = hands[side];
+        if (h.item?.kind === kind) {
+          h.item.onRelease?.();
+          h.item.object.parent?.remove(h.item.object);
+          h.item = null;
+          label(side);
+          return true;
+        }
+      }
+      return false;
+    },
+  };
+
+  const grabNdc = new THREE.Vector2();
+  // ndc: where on screen to grab from. Desktop = crosshair centre; touch = the
+  // tap point, so tapping a duck (anywhere on screen) grabs THAT duck.
+  const tryGrab = (side: Side, ndc: THREE.Vector2 | null = null) => {
+    const h = hands[side];
+    if (h.item) return;
+    ctx.camera.getWorldDirection(forward);
+    raycaster.setFromCamera(ndc ?? grabNdc.set(0, 0), ctx.camera);
+    const grabbable = carryables.filter((c) => !heldInAnyHand(c));
+    const objs = grabbable.map((c) => c.object);
+    const hits = raycaster.intersectObjects(objs, true);
+    let target: Carryable | null = null;
+    if (hits.length && hits[0].distance <= GRAB_DIST) {
+      let o: THREE.Object3D | null = hits[0].object;
+      while (o && !objs.includes(o)) o = o.parent;
+      if (o) target = grabbable[objs.indexOf(o)];
+    }
+    if (!target) {
+      // Fallback only for a near miss: must be CLOSE and (nearly) looked at.
+      const cam = ctx.camera.position;
+      let best = 2.2;
+      for (const c of grabbable) {
+        const dx = c.object.position.x - cam.x;
+        const dz = c.object.position.z - cam.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= best && (dx * forward.x + dz * forward.z) / (dist || 1) > 0.9) {
+          best = dist;
+          target = c;
+        }
+      }
+    }
+    if (!target) return;
+    h.item = target;
+    target.onGrab?.();
+    label(side);
+  };
+
+  // A combine target the player is aiming at with a matching recipe for `item`.
+  const findCombo = (item: Carryable): { target: CombineTarget; recipe: Recipe } | null => {
+    ctx.camera.getWorldDirection(forward);
+    const ax = ctx.camera.position.x + forward.x * AIM_DIST;
+    const az = ctx.camera.position.z + forward.z * AIM_DIST;
+    let best: { target: CombineTarget; recipe: Recipe; d: number } | null = null;
+    for (const t of targets) {
+      const recipe = recipes.get(item.kind + '>' + t.kind);
+      if (!recipe) continue;
+      const d = Math.hypot(t.position.x - ax, t.position.z - az);
+      if (d <= t.radius && (!best || d < best.d)) best = { target: t, recipe, d };
+    }
+    return best ? { target: best.target, recipe: best.recipe } : null;
+  };
+
+  const releaseHand = (side: Side) => {
+    const h = hands[side];
+    const it = h.item;
+    if (it) it.onRelease?.();
+    h.item = null;
+    label(side);
+  };
+
+  const sideOf = (e: PointerEvent): Side => {
+    if (e.pointerType === 'touch') return e.clientX < window.innerWidth / 2 ? 'left' : 'right';
+    return e.button === 2 ? 'right' : 'left';
+  };
+
+  function onDown(e: PointerEvent) {
+    if (!playing || ctx.isDead()) return;
+    const side = sideOf(e);
+    const h = hands[side];
+    if (!h.item) {
+      // Touch: grab from the tapped point (tap the duck itself). Mouse: crosshair.
+      const ndc =
+        e.pointerType === 'touch'
+          ? grabNdc.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1))
+          : null;
+      tryGrab(side, ndc);
+      h.pressing = false;
+      return;
+    }
+    h.pressing = true;
+    h.pressStart = performance.now();
+  }
+  function onUp(e: PointerEvent) {
+    if (!playing) return;
+    const side = sideOf(e);
+    const h = hands[side];
+    if (!h.pressing || !h.item) return;
+    h.pressing = false;
+    const elapsed = performance.now() - h.pressStart;
+    const item = h.item;
+    const combo = findCombo(item);
+    if (combo) {
+      const keep = combo.recipe(item, combo.target, { ctx, carry, side });
+      if (keep !== true && hands[side].item === item) releaseHand(side);
+      return;
+    }
+    if (elapsed < TAP_MS && item.onTap) {
+      item.onTap(); // stays in hand (e.g. swing)
+      return;
+    }
+    if (item.onThrow) {
+      item.onThrow(Math.min(1, elapsed / 1000));
+      releaseHand(side);
+    }
+  }
+
+  if (canvas) {
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('pointerdown', onDown);
+    canvas.addEventListener('pointerup', onUp);
+  }
+
+  return carry;
+}
