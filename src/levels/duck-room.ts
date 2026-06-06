@@ -15,7 +15,7 @@ import { buildExitRoom } from './exit-room';
 // saw. Then it's on you — grab a duck with the crosshair, charge a throw, and
 // lob it. Where it lands decides its fate, and the narrator judges you for it.
 
-const QUOTA = 10;
+const QUOTA = 20;
 const DUCK_RADIUS = 0.2;
 
 // Wander tuning (room ducks).
@@ -302,7 +302,7 @@ export function revealDucks(ctx: GameContext): void {
   const RESCUE_PRAISE_LINE = 'And now, of course, you decide to do the right thing. How convenient for your conscience.';
   // The rescue twist — sarcastic, pitying, Stanley-Parable.
   const STAND_OPEN_LINE =
-    'Five ducks, saved. A hero. And the farm, being a business, sold every one. There they are now — Peking duck, lacquered and golden, turning on the spit. Your good intentions, it turns out, come with a rather bitter aftertaste.';
+    'The ducks, saved. A hero. And the farm, being a business, sold every one. There they are now — Peking duck, lacquered and golden, turning on the spit. Your good intentions, it turns out, come with a rather bitter aftertaste.';
   const STAND_LINES = [
     'Another life saved. Another duck for the rotisserie.',
     'Rescued, glazed, and slowly rotating. The mercy continues.',
@@ -782,7 +782,7 @@ export function revealDucks(ctx: GameContext): void {
     // opens once a path completes (wolf fed / stand / all ducks used).
 
     ctx.narrate(
-      'Fifty ducks. Two pens. One is a saw. Choose, for each, with your hands.',
+      'Enough ducks. Two pens. One is a saw. Choose, for each, with your hands.',
       6000,
     );
   };
