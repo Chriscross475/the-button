@@ -3,6 +3,7 @@ import type { GameContext, ControlMode } from '../game/types';
 import { addUpdater } from '../experiences/scheduler';
 import { createAsset, trainStrike } from '../assets';
 import { spawnPedestalButton } from '../button/pedestal-button';
+import { groundPlane, hideRoomShell } from './scaffold';
 import { registerInteractable } from '../interactables/system';
 import { whoosh, thunder, trainHorn, pop, thud, click } from '../audio/sfx';
 import { defineCombine } from '../game/combine';
@@ -67,23 +68,7 @@ function strut(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Materia
 export function revealSlingshot(ctx: GameContext): void {
   const root = ctx.levelRoot;
 
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(260, 260),
-    // polygonOffset so this dark gravel wins the depth test over the coplanar
-    // white hub floor (which openRoom leaves at y=0) — no z-fighting flicker.
-    new THREE.MeshStandardMaterial({
-      color: 0x3a3d33,
-      roughness: 1,
-      flatShading: true,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -2,
-    }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = 0.01;
-  ground.receiveShadow = true;
-  root.add(ground);
+  root.add(groundPlane());
   ctx.scene.background = new THREE.Color(0x1b212d);
   ctx.scene.fog = new THREE.Fog(0x1b212d, 36, 170);
   root.add(new THREE.HemisphereLight(0xaebfd6, 0x33352c, 1.0));
@@ -93,18 +78,7 @@ export function revealSlingshot(ctx: GameContext): void {
   root.add(moon);
 
   ctx.openRoom();
-
-  // openRoom leaves the hub's white room SHELL behind (toppled walls, floor,
-  // floated ceiling); our gravel + tunnel faces replace it, so hide that whole
-  // bright shell — otherwise its panels z-fight up through the dark ground.
-  ctx.scene.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh || m === ground) return;
-    const c = (m.material as THREE.MeshStandardMaterial)?.color;
-    if (!c || c.r < 0.7 || c.g < 0.7 || c.b < 0.7) return; // only the white shell
-    const pa = ((m.geometry as THREE.BufferGeometry) as unknown as { parameters?: { width?: number; height?: number; depth?: number } })?.parameters || {};
-    if (Math.max(pa.width || 0, pa.height || 0, pa.depth || 0) > 5) m.visible = false;
-  });
+  hideRoomShell(ctx); // drop the hub's white shell so it doesn't z-fight the gravel
 
   // ── Materials (block barriers; tracks + tunnel faces are shared assets) ──
   const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.95, flatShading: true });
