@@ -25,21 +25,21 @@ defineCombine('key', 'door-lock', (held) => {
 // The doors' second opinions — once you've met the locked door (and again when
 // you pick up the key) every door swaps to the next walk's mechanism set,
 // closed — three walks, three sets, fifteen mechanisms. See reshuffleDoors().
-const RESHUFFLE_NOTICE = vo('Hm. That is not how that door opened before. They have been reconsidering themselves.');
+const RESHUFFLE_NOTICE = vo('Hm. That is not how that door opened before. Try not to take it personally. It is personal.');
 const KEY_TEASE = vo(
-  'There is a key, incidentally. I have known where it is since before you pressed the button. It is in the first room — behind where you started. I thought the walk would be good for you.',
+  'There is a key, incidentally. I have known where it is since before you pressed the button. It is in the first room, about four steps from where you began. I thought the walk would be good for you.',
 );
+// The cadence plays exactly two of these on the walk back (doors 2 and 4)…
 const WALKBACK_QUIPS = vo([
   'I could have told you it was locked five doors ago. I want you to know that I considered it.',
-  'They do this when they are nervous.',
-  'I did consider mentioning the key earlier. It seemed funnier unmentioned. I stand by that.',
-  'Everyone is reinventing themselves today.',
-  'Nearly there. The key has not moved. Probably.',
+  'You are taking this remarkably well. Outwardly.',
 ]);
+// …and exactly three on the key trip (doors 1, 3 and 5 — the last one lands
+// just before the locked door, setting up the bow).
 const FORWARD_QUIPS = vo([
   'Yes, yes. Very dramatic. Keep walking.',
   'That one practised while you were gone.',
-  'The lock, at least, has remained itself. Cherish that.',
+  'Almost there. The last door has been rehearsing. Do act surprised.',
 ]);
 const RESHUFFLE_AGAIN = vo('And now they have all changed again. The key has made everyone self-conscious.');
 
