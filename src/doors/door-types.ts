@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { vo } from '../audio/vo-shared';
 
 // The "how many ways can a door open" registry. Each type builds its own
 // geometry and defines open(p) where p: 0 = shut, 1 = fully open.
@@ -67,7 +68,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 1 — swing: one leaf on a side hinge, with a knob; opens toward the front.
   {
     id: 'swing',
-    name: 'a door that swings',
+    name: vo('a door that swings.'),
     build(w, h) {
       const g = frame(w, h);
       const lf = leaf(w, h);
@@ -90,7 +91,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 2 — lift: one leaf rises into the lintel.
   {
     id: 'slide-up',
-    name: 'a door that lifts',
+    name: vo('a door that lifts.'),
     build(w, h) {
       const g = frame(w, h);
       const l = leaf(w, h);
@@ -103,7 +104,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 3 — slide aside: one leaf slides into the wall.
   {
     id: 'slide-side',
-    name: 'a door that slides aside',
+    name: vo('a door that slides aside.'),
     build(w, h) {
       const g = frame(w, h);
       const l = leaf(w, h);
@@ -119,7 +120,7 @@ export const DOOR_TYPES: DoorType[] = [
   // revolve: one leaf turns about its vertical centre axis.
   {
     id: 'revolve',
-    name: 'a door that pivots in place',
+    name: vo('a door that pivots in place.'),
     build(w, h) {
       const g = frame(w, h);
       const piv = hinged(leaf(w, h), 0, 0, 0, h / 2); // hinge: vertical centre axis
@@ -131,7 +132,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 6 — double swing: two leaves part down the middle.
   {
     id: 'double-swing',
-    name: 'a door that parts in the middle',
+    name: vo('a door that parts in the middle.'),
     build(w, h) {
       const g = frame(w, h);
       const lp = hinged(leaf(w / 2, h), -w / 2, 0, -w / 4, h / 2); // left leaf, outer-edge hinge
@@ -150,7 +151,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 7 — split: two leaves slide apart sideways into the walls.
   {
     id: 'split',
-    name: 'a door that splits apart',
+    name: vo('a door that splits apart.'),
     build(w, h) {
       const g = frame(w, h);
       const l = leaf(w / 2, h);
@@ -171,7 +172,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 8 — vertical split: top half rises, bottom half sinks.
   {
     id: 'double-slide-vertical',
-    name: 'a door whose halves slide opposite',
+    name: vo('a door whose halves slide opposite.'),
     build(w, h) {
       const g = frame(w, h);
       const top = leaf(w, h / 2);
@@ -192,7 +193,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 9 — iris: four panels retract up/down/left/right.
   {
     id: 'iris',
-    name: 'a door that irises open',
+    name: vo('a door that irises open.'),
     build(w, h) {
       const g = frame(w, h);
       const top = leaf(w, h / 2);
@@ -219,7 +220,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 10 — corners: four quarter panels retreat to the corners.
   {
     id: 'four-corner',
-    name: 'a door that retreats to its corners',
+    name: vo('a door that retreats to its corners.'),
     build(w, h) {
       const g = frame(w, h);
       const quads = [
@@ -247,7 +248,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 11 — dissolve: a grid of tiles that shrink away in a sweep.
   {
     id: 'grid-dissolve',
-    name: 'a door that dissolves tile by tile',
+    name: vo('a door that dissolves tile by tile.'),
     build(w, h) {
       const g = frame(w, h);
       const cols = 3;

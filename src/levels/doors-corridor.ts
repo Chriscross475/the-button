@@ -165,7 +165,7 @@ export function revealDoors(ctx: GameContext): void {
           slot.opened = true;
           it.promptLabel = '';
           whoosh();
-          ctx.narrate(slot.name + '.', 2600);
+          ctx.narrate(slot.name, 2600);
         },
         built: { group: handle.group },
       };
@@ -258,7 +258,7 @@ export function revealDoors(ctx: GameContext): void {
         if (!s.opened) {
           s.opened = true;
           whoosh();
-          ctx.narrate(s.name + '.', 2600);
+          ctx.narrate(s.name, 2600);
         }
         s.progress = Math.min(1, s.progress + dt / 0.9);
         s.handle.open(s.progress);
