@@ -599,7 +599,24 @@ export function revealDucks(ctx: GameContext): void {
       { minX: -CORR_W / 2, maxX: CORR_W / 2, minZ: frontZ - 0.6, maxZ: frontZ + CORR_LEN + 0.6 },
       rb,
     ]);
-    ctx.narrate(RESOLVE_LINES[path], path === 'stand' ? 10000 : 7000, { priority: true });
+    if (path === 'wolf') {
+      // The wolf line lands when you actually MEET it — stepping into the end
+      // room — not back at the pens when the corridor opens.
+      let met = false;
+      addUpdater(() => {
+        if (!active) return true;
+        if (met) return true;
+        const p = ctx.playerPos();
+        if (p.z >= rb.minZ + 0.5 && p.x >= rb.minX && p.x <= rb.maxX) {
+          met = true;
+          ctx.narrate(RESOLVE_LINES.wolf, 7000, { priority: true });
+          return true;
+        }
+        return false;
+      });
+    } else {
+      ctx.narrate(RESOLVE_LINES[path], path === 'stand' ? 10000 : 7000, { priority: true });
+    }
   };
 
   const checkAllUsed = () => {
