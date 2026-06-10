@@ -50,12 +50,17 @@ export interface GameContext {
    *  the level on exit. Repointed by the Game on every level change. */
   levelRoot: THREE.Object3D;
   /** Narrator line (shown + spoken). `priority` clears the queue + interrupts
-   *  the current line so a timing-critical reaction plays immediately. */
-  narrate: (text: string, holdMs?: number, opts?: { priority?: boolean }) => void;
+   *  the current line so a timing-critical reaction plays immediately.
+   *  `interruptible` marks a low-priority line the next one replaces at once. */
+  narrate: (text: string, holdMs?: number, opts?: { priority?: boolean; interruptible?: boolean }) => void;
+  /** Run `fn` once after `ms` of game time. Cancelled automatically on level
+   *  change — use this instead of window.setTimeout for anything that touches
+   *  the world, or the callback fires into the NEXT level. */
+  after: (ms: number, fn: () => void) => void;
   /** Live player position (do not mutate). */
   playerPos: () => THREE.Vector3;
-  /** Active level's collision bounds. */
-  bounds: RoomBounds;
+  /** Active level's collision bounds (live — reflects setBounds/setRegions). */
+  readonly bounds: RoomBounds;
   /** Add a circular collision obstacle to the ACTIVE level. */
   addObstacle: (o: Obstacle) => void;
   /** Remove a previously-added obstacle (e.g. when the button sinks away). */

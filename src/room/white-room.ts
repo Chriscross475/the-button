@@ -43,11 +43,13 @@ export function buildWhiteRoom(scene: THREE.Scene, parent: THREE.Object3D): Buil
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
+  floor.userData.isRoomShell = true; // hideRoomShell() hides by this tag
   group.add(floor);
 
   const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(w, d), ceilMat);
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = h;
+  ceiling.userData.isRoomShell = true;
   group.add(ceiling);
 
   // Walls (thin boxes). Each records how it should topple outward.
@@ -57,6 +59,7 @@ export function buildWhiteRoom(scene: THREE.Scene, parent: THREE.Object3D): Buil
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), wallMat);
     m.position.set(x, h / 2, z);
     m.receiveShadow = true;
+    m.userData.isRoomShell = true;
     group.add(m);
     walls.push({ mesh: m, axis, sign, dir });
   };

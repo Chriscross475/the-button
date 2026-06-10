@@ -258,7 +258,7 @@ export function revealForest(ctx: GameContext): void {
     }
     if (near) {
       const tree = near;
-      window.setTimeout(() => {
+      ctx.after(SWING_DUR * 500, () => {
         if (tree.felled || !tree.group.parent) return;
         tree.felled = true;
         root.remove(tree.group);
@@ -268,7 +268,7 @@ export function revealForest(ctx: GameContext): void {
         const target: CombineTarget = { kind: 'campfire', position: new THREE.Vector3(tree.x, 0, tree.z), radius: 2.2 };
         ctx.addTarget(target);
         thud();
-      }, SWING_DUR * 500);
+      });
     }
     tryBreakDoor(ax, az); // a swing near the cabin's plank smashes it open
   };

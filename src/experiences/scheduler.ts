@@ -36,3 +36,23 @@ export function clearUpdaters(): void {
   updaters.length = 0;
   generation++;
 }
+
+/** The current updater-pool generation; bumps on every level transition. Lets
+ *  callers detect "the world I scheduled against is gone" (see defineReveal). */
+export function currentGeneration(): number {
+  return generation;
+}
+
+/** Run `fn` once after `ms` of GAME time, through the updater pool — so a level
+ *  transition cancels it automatically. Content must use this (via ctx.after)
+ *  instead of window.setTimeout, which outlives the level and fires into the
+ *  next one (e.g. registering a combine target in a room that no longer exists). */
+export function after(ms: number, fn: () => void): void {
+  let t = 0;
+  addUpdater((dt) => {
+    t += dt * 1000;
+    if (t < ms) return false;
+    fn();
+    return true;
+  });
+}

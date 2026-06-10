@@ -27,15 +27,42 @@ import { ensureAudio, thud } from '../audio/sfx';
 import { primeTts, onVoiceReady } from '../audio/tts';
 import { showMainMenu } from '../ui/main-menu';
 import { createAsset } from '../assets';
-import { addUpdater, tickUpdaters, clearUpdaters } from '../experiences/scheduler';
+import { addUpdater, tickUpdaters, clearUpdaters, after } from '../experiences/scheduler';
+import { disposeTree } from '../engine/dispose';
 import { spawnPedestalButton } from '../button/pedestal-button';
-import type { GameContext, Level, LevelInstance, ControlMode } from './types';
+import type { GameContext, Level, LevelInstance, ControlMode, FlightWall } from './types';
+import type { Experience } from '../experiences/registry';
 import { pick } from '../experiences/util';
 import { pickExperience, getExperience, setLastExperience } from '../experiences/registry';
 
 // Launch (flight) tuning.
 const FLIGHT_GRAVITY = 16;
 const FLIGHT_STEER = 2.2; // how hard "look" curves your trajectory in the air
+
+/** Where the segment a→b first enters the box, as a fraction 0..1 of the
+ *  segment — or null if it misses. Starting inside the box returns 0. */
+function segmentBoxEntry(a: THREE.Vector3, b: THREE.Vector3, w: FlightWall): number | null {
+  let t0 = 0;
+  let t1 = 1;
+  const lo = [w.minX, w.minY, w.minZ];
+  const hi = [w.maxX, w.maxY, w.maxZ];
+  const av = [a.x, a.y, a.z];
+  const bv = [b.x, b.y, b.z];
+  for (let i = 0; i < 3; i++) {
+    const d = bv[i] - av[i];
+    if (Math.abs(d) < 1e-9) {
+      if (av[i] < lo[i] || av[i] > hi[i]) return null;
+      continue;
+    }
+    let tn = (lo[i] - av[i]) / d;
+    let tf = (hi[i] - av[i]) / d;
+    if (tn > tf) [tn, tf] = [tf, tn];
+    t0 = Math.max(t0, tn);
+    t1 = Math.min(t1, tf);
+    if (t0 > t1) return null;
+  }
+  return t0;
+}
 
 const DEATH_LINES = [
   'You died. The button does not mourn.',
@@ -71,6 +98,7 @@ export class Game {
 
   private deathEl: HTMLDivElement;
   private readonly forward = new THREE.Vector3();
+  private readonly flightPrev = new THREE.Vector3(); // position before this frame's flight step
 
   private carry!: Carry; // the single global dual-hand carry, created in the ctor
   // A pet that follows the player across levels (scene-attached, Game-driven).
@@ -95,13 +123,20 @@ export class Game {
     this.fadeEl = document.getElementById('fade') as HTMLDivElement;
     this.deathEl = document.getElementById('death') as HTMLDivElement;
 
+    const game = this; // for the live `bounds` getter below
+    const bootBounds = { minX: -5, maxX: 5, minZ: -5, maxZ: 5 };
     this.ctx = {
       scene: this.scene,
       camera: this.camera,
       levelRoot: new THREE.Group(),
       narrate,
+      after,
       playerPos: () => this.camera.position,
-      bounds: { minX: -5, maxX: 5, minZ: -5, maxZ: 5 },
+      // Live view of the active level's bounds — stays correct after setBounds
+      // (a stored snapshot would go stale the moment a level reshapes itself).
+      get bounds() {
+        return game.current?.bounds ?? bootBounds;
+      },
       addObstacle: (o) => this.current?.obstacles.push(o),
       removeObstacle: (o) => {
         const arr = this.current?.obstacles;
@@ -258,15 +293,17 @@ export class Game {
       console.error(`unknown level: ${id}`);
       return;
     }
-    if (this.current) {
-      this.scene.remove(this.current.root);
-      this.current.dispose?.();
+    const old = this.current;
+    if (old) {
+      this.scene.remove(old.root);
+      old.dispose?.();
     }
     clearInteractables();
     clearUpdaters();
     this.controlMode = null; // never carry an operating mode across levels
     this.setWheelMode(false); // the unicycle is per-level (also clears its visual)
     this.carry.clearLevel(); // drop the leaving level's carryables; persistent items carry over
+    if (old) disposeTree(old.root); // AFTER clearLevel — held items are re-parented out first
     this.mode = 'play';
     this.airborne = false;
     this.launchVel.set(0, 0, 0);
@@ -275,7 +312,6 @@ export class Game {
 
     const instance = level.build(this.ctx);
     this.current = instance;
-    this.ctx.bounds = instance.bounds;
     this.ctx.levelRoot = instance.root;
     this.scene.add(instance.root);
 
@@ -298,7 +334,22 @@ export class Game {
   // as "the room transformed around me", not "I was moved".
   private advance(buttonPos?: THREE.Vector3): void {
     if (this.pendingLevel) return;
-    const exp = pickExperience();
+    this.runAdvance(pickExperience(), buttonPos);
+  }
+
+  // Like advance, but to a specific experience (e.g. through a broken-wall hole).
+  private advanceTo(expId: string, buttonPos?: THREE.Vector3): void {
+    if (this.pendingLevel) return;
+    const exp = getExperience(expId);
+    if (!exp) {
+      this.runAdvance(pickExperience(), buttonPos);
+      return;
+    }
+    setLastExperience(expId); // so the next random pick won't repeat it
+    this.runAdvance(exp, buttonPos);
+  }
+
+  private runAdvance(exp: Experience | null, buttonPos?: THREE.Vector3): void {
     const cam = this.camera.position;
     // With a reference button, keep the player's offset from it (the room
     // transforms around them). Without one (e.g. the buttons-grid finale), stand
@@ -312,32 +363,6 @@ export class Game {
     this.loadLevel('hub');
     exp?.run(this.ctx);
     // Place the player at the same offset from the new (hub) button at (0,0,-2).
-    this.camera.position.set(0 + offX, CONFIG.PLAYER_HEIGHT, -2 + offZ);
-    setYaw(yaw);
-    setPitch(pitch);
-  }
-
-  // Like advance, but to a specific experience (e.g. through a broken-wall hole).
-  private advanceTo(expId: string, buttonPos?: THREE.Vector3): void {
-    if (this.pendingLevel) return;
-    const exp = getExperience(expId);
-    if (!exp) {
-      this.advance(buttonPos);
-      return;
-    }
-    const cam = this.camera.position;
-    // With a reference button, keep the player's offset from it (the room
-    // transforms around them). Without one (e.g. the buttons-grid finale), stand
-    // them a few metres clear of where the new button appears at (0,0,-2) — so it
-    // never spawns right on top of the player and traps them.
-    const ref = buttonPos ?? cam;
-    const offX = buttonPos ? cam.x - ref.x : 0;
-    const offZ = buttonPos ? cam.z - ref.z : 4;
-    const yaw = getYaw();
-    const pitch = getPitch();
-    this.loadLevel('hub');
-    setLastExperience(expId); // so the next random pick won't repeat it
-    exp.run(this.ctx);
     this.camera.position.set(0 + offX, CONFIG.PLAYER_HEIGHT, -2 + offZ);
     setYaw(yaw);
     setPitch(pitch);
@@ -628,18 +653,19 @@ export class Game {
       this.launchVel.z = (dz / nl) * sp;
     }
     this.launchVel.y -= FLIGHT_GRAVITY * dt;
+    this.flightPrev.copy(this.camera.position);
     this.camera.position.addScaledVector(this.launchVel, dt);
 
     const p = this.camera.position;
     // Slam into an elevated room's wall mid-flight → dead, chalk left on the wall.
+    // Swept (segment) test, not point-in-box: at launch speed you cover over a
+    // metre per frame, enough to pass clean through a thin wall between samples.
     const walls = this.current?.flightWalls;
     if (walls) {
       for (const wbox of walls) {
-        if (
-          p.x >= wbox.minX && p.x <= wbox.maxX &&
-          p.y >= wbox.minY && p.y <= wbox.maxY &&
-          p.z >= wbox.minZ && p.z <= wbox.maxZ
-        ) {
+        const tHit = segmentBoxEntry(this.flightPrev, p, wbox);
+        if (tHit !== null) {
+          p.copy(this.flightPrev).addScaledVector(this.launchVel, tHit * dt);
           this.airborne = false;
           this.die('wall', { pos: p.clone(), dir: this.launchVel.clone() });
           return;

@@ -105,6 +105,9 @@ Everything a level/experience can do, grouped:
 - **Bounds/physics**: `bounds`, `setBounds`, `setRegions`, `addObstacle/removeObstacle`, `setLanding`, `setFlightWalls`, `launchPlayer`, `die`, `isAirborne`, `isDead`.
 - **Carry**: `addCarryable/removeCarryable`, `addTarget/removeTarget`, `isHolding`, `consumeHeld`, `heldKind`, `putInHand`.
 - **Misc**: `setCompanion`, `setWheel`, `setControlMode`.
+- **Timing**: `after(ms, fn)` — a delayed callback that a level transition
+  cancels automatically. **Never use `window.setTimeout` in content** — it
+  outlives the level and fires into the next one.
 
 ---
 
