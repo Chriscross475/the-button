@@ -25,14 +25,15 @@ Narration is **pre-baked to static WAV assets** (`public/vo/<hash>.wav`) and pla
 directly at runtime — instant, with zero server inference. Generate them with:
 
 ```sh
-npm run vo      # needs the local Sandbox kokoro at localhost:37777
+npm run vo      # self-contained: in-process kokoro-js (first run downloads the ~330MB model)
 ```
 
 `scripts/generate-vo.ts` scans the source for `narrate('...')` lines, synthesises each
-(kokoro `bm_george`, with the per-phrase pauses baked in), and writes a content-hashed
+(kokoro `bm_george` via **kokoro-js**, the ONNX port of the same model — no Python,
+no server), with the per-phrase pauses baked in, and writes a content-hashed
 WAV plus a manifest (`src/audio/vo-manifest.json`, imported by the runtime). Only
-new/changed lines regenerate; stale WAVs are pruned. Run it locally where kokoro is
-fast, then **commit** `public/vo/*.wav` + the manifest.
+new/changed lines regenerate; stale WAVs are pruned. **Commit** `public/vo/*.wav`
++ the manifest after baking.
 
 At runtime a fixed line plays its bundled WAV; anything not baked — dynamic lines, or a
 missing asset — falls back to the live `POST /api/tts` kokoro (Vite proxies it to

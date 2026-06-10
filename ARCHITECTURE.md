@@ -134,9 +134,10 @@ Everything a level/experience can do, grouped:
 
 - `narrate(text, holdMs, opts)`: queues; `priority` interrupts; `interruptible`
   marks a low-prio line the next line replaces at once (the idle intro).
-- **Voice is pre-baked.** `npm run vo` (needs local kokoro at :37777) scans the
-  source for `narrate('literal')`, synthesises each (kokoro `bm_george`, tuned
-  pauses baked in), writes `public/vo/<hash>.wav` + `src/audio/vo-manifest.json`.
+- **Voice is pre-baked.** `npm run vo` (self-contained: in-process kokoro-js,
+  no server needed; first run downloads the model) scans the source for
+  `narrate('literal')` and `vo(...)` lines, synthesises each (kokoro `bm_george`,
+  tuned pauses baked in), writes `public/vo/<hash>.wav` + `src/audio/vo-manifest.json`.
   Runtime plays the bundled WAV instantly; falls back to live `/api/tts` then Web Speech.
 - **Rules:** keep spoken lines **fixed strings** (no `${}`) so they bake; put
   dynamic numbers in the HUD, not the voice line. Inline `narrate('literal')`
