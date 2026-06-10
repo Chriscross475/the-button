@@ -64,6 +64,8 @@ Two tiers, both registered as **Experiences** (the button picks one at weighted
 random):
 
 - **Gag** — a small in-room effect. Just `{ id, weight, run(ctx) }`.
+  (`weight: 0` keeps an experience OUT of the button's random pool — it's then
+  only reachable via `advanceTo(id)`, like the slingshot yard from the tunnel.)
 - **Level** — opens the white room into a full scene. Use **`defineLevel()`**
   (`src/levels/scaffold.ts`), which opens the room, hides the white shell, guards
   double-reveal, then runs your `build(ctx)`.

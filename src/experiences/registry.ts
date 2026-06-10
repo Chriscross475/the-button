@@ -10,7 +10,9 @@ export type ExperienceContext = GameContext;
 
 export interface Experience {
   id: string;
-  /** Relative likelihood of being chosen. Default 1. */
+  /** Relative likelihood of being chosen. Default 1. Weight 0 = NEVER picked
+   *  at the button — the experience is only reachable via advanceTo(id)
+   *  (e.g. the slingshot yard, entered by walking up from the tunnel). */
   weight?: number;
   run: (ctx: ExperienceContext) => void;
 }
@@ -36,11 +38,13 @@ export function setLastExperience(id: string): void {
   lastId = id;
 }
 
-/** Weighted random pick that never immediately repeats the last experience. */
+/** Weighted random pick that never immediately repeats the last experience.
+ *  Weight-0 experiences are excluded entirely (they're advanceTo-only). */
 export function pickExperience(): Experience | null {
-  if (experiences.length === 0) return null;
+  const pickable = experiences.filter((e) => (e.weight ?? 1) > 0);
+  if (pickable.length === 0) return null;
   // Exclude the last-run experience entirely (unless it's the only one).
-  const pool = experiences.length > 1 ? experiences.filter((e) => e.id !== lastId) : experiences;
+  const pool = pickable.length > 1 ? pickable.filter((e) => e.id !== lastId) : pickable;
   const total = pool.reduce((s, e) => s + (e.weight ?? 1), 0);
   let r = Math.random() * total;
   let chosen = pool[pool.length - 1];
