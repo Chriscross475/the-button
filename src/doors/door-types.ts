@@ -7,8 +7,9 @@ import { vo } from '../audio/vo-shared';
 // Two rules the corridor relies on:
 //   1. At p = 0 every door FULLY COVERS its w×h opening (no see-through gaps).
 //   2. The list is THREE SETS of five, one set per walk (out, back, the key
-//      trip) — the corridor assigns DOOR_TYPES[walk * 5 + k] to door k. Each
-//      set runs SIMPLE → COMPLEX, so every walk escalates afresh.
+//      trip) — the corridor assigns DOOR_TYPES[walk * 5 + k] to changing door
+//      k. Each set runs SIMPLE → COMPLEX, so every walk escalates afresh.
+//      The locked sixth door is separate (LOCKED_DOOR_TYPE) and never swaps.
 
 export interface DoorHandle {
   group: THREE.Group; // positioned + rotated by the caller (placed in the wall)
@@ -250,8 +251,7 @@ export const DOOR_TYPES: DoorType[] = [
     },
   },
 
-  // 10 — sink: one leaf drops into the floor. (Held by the locked door's
-  // walk-back slot, which is never seen opening — by design the most modest.)
+  // 10 — sink: one leaf drops into the floor.
   {
     id: 'sink-floor',
     name: vo('a door that sinks into the floor.'),
@@ -357,7 +357,35 @@ export const DOOR_TYPES: DoorType[] = [
     },
   },
 
-  // 14 — twirl: the leaf spins about its vertical centre and thins to nothing.
+  // 14 — unravel: vertical strips take their leave one by one — odd strips
+  // rise, even strips drop, in a stagger across the door.
+  {
+    id: 'unravel',
+    name: vo('a door that unravels in strips.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const STRIPS = 5;
+      const sw = w / STRIPS;
+      const strips: { mesh: THREE.Mesh; up: boolean; delay: number }[] = [];
+      for (let i = 0; i < STRIPS; i++) {
+        const m = leaf(sw * 1.04, h, i % 2 ? PANEL2 : PANEL);
+        m.position.set(-w / 2 + (i + 0.5) * sw, h / 2, 0);
+        g.add(m);
+        strips.push({ mesh: m, up: i % 2 === 0, delay: i / STRIPS });
+      }
+      return {
+        group: g,
+        open: (p) => {
+          for (const st of strips) {
+            const local = clamp01((p - st.delay * 0.45) / (1 - st.delay * 0.45));
+            st.mesh.position.y = h / 2 + (st.up ? 1 : -1) * local * (h + 0.4);
+          }
+        },
+      };
+    },
+  },
+
+  // 15 — twirl: the leaf spins about its vertical centre and thins to nothing.
   {
     id: 'twirl',
     name: vo('a door that twirls away.'),
@@ -376,24 +404,26 @@ export const DOOR_TYPES: DoorType[] = [
     },
   },
 
-  // 15 — bow: the finale, on the locked door. It leans politely toward the
-  // player, then excuses itself through the floor.
-  {
-    id: 'bow',
-    name: vo('a door that takes a bow.'),
-    build(w, h) {
-      const g = frame(w, h);
-      const piv = hinged(leaf(w, h), 0, 0, 0, h / 2); // pivot at the base
-      g.add(piv);
-      return {
-        group: g,
-        open: (p) => {
-          const lean = Math.min(1, p / 0.45);
-          const sink = clamp01((p - 0.45) / 0.55);
-          piv.rotation.x = lean * 0.5; // a modest bow toward the player…
-          piv.position.y = -sink * (h + 0.6); // …then it excuses itself
-        },
-      };
-    },
-  },
 ];
+
+// The sixth door — the LOCKED one. It never joins the walk sets and never
+// swaps: one door, one mechanism, saved for the unlock. It leans politely
+// toward the player, then excuses itself through the floor.
+export const LOCKED_DOOR_TYPE: DoorType = {
+  id: 'bow',
+  name: vo('a door that takes a bow.'),
+  build(w, h) {
+    const g = frame(w, h);
+    const piv = hinged(leaf(w, h), 0, 0, 0, h / 2); // pivot at the base
+    g.add(piv);
+    return {
+      group: g,
+      open: (p) => {
+        const lean = Math.min(1, p / 0.45);
+        const sink = clamp01((p - 0.45) / 0.55);
+        piv.rotation.x = lean * 0.5; // a modest bow toward the player…
+        piv.position.y = -sink * (h + 0.6); // …then it excuses itself
+      },
+    };
+  },
+};

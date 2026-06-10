@@ -3,7 +3,7 @@ import { CONFIG } from '../config';
 import type { GameContext } from '../game/types';
 import type { RoomBounds } from '../controls/player-camera';
 import { addUpdater } from '../experiences/scheduler';
-import { DOOR_TYPES, type DoorHandle } from '../doors/door-types';
+import { DOOR_TYPES, LOCKED_DOOR_TYPE, type DoorHandle } from '../doors/door-types';
 import { registerInteractable } from '../interactables/system';
 import type { Interactable } from '../interactables/types';
 import { whoosh, pop, thud } from '../audio/sfx';
@@ -51,7 +51,8 @@ const RESHUFFLE_AGAIN = vo('And now they have all changed again. The key has mad
 // wider + taller than the last, and every door is a little bigger too.
 
 const SEG = 20; // length of each corridor segment (door to door)
-const N = 5; // doors per walk; DOOR_TYPES holds N × 3 mechanisms (one set per walk)
+const N = 5; // CHANGING doors; DOOR_TYPES holds N × 3 mechanisms (one set per walk)
+const ND = N + 1; // total doors: the five that change + the locked sixth
 const OPEN_DIST = 7;
 
 // Base sizes + per-step growth (segment/door index k = 0,1,2,…). The corridor
@@ -84,13 +85,13 @@ export function revealDoors(ctx: GameContext): void {
   const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a3d44, roughness: 0.9 });
   const floorMat = new THREE.MeshStandardMaterial({ color: 0x26282d, roughness: 1 });
 
-  const END_Z = FRONT - SEG * (N + 1);
+  const END_Z = FRONT - SEG * (ND + 1);
   const doorZ = (k: number) => FRONT - SEG * (k + 1); // door k (0..N-1)
   const segHiZ = (k: number) => (k === 0 ? FRONT : doorZ(k - 1)); // +Z end of segment k
-  const segLoZ = (k: number) => (k === N ? END_Z : doorZ(k)); // −Z end of segment k
+  const segLoZ = (k: number) => (k === ND ? END_Z : doorZ(k)); // −Z end of segment k
 
   // ── Growing corridor: N+1 segment shells, each wider + taller than the last. ──
-  for (let k = 0; k <= N; k++) {
+  for (let k = 0; k <= ND; k++) {
     const w = segW(k);
     const h = segH(k);
     const zHi = segHiZ(k);
@@ -159,15 +160,15 @@ export function revealDoors(ctx: GameContext): void {
   // The doors — each successive one bigger + a more elaborate open-type.
   const slots: DoorSlot[] = [];
   let knob0: Interactable | null = null;
-  for (let k = 0; k < N; k++) {
-    const type = DOOR_TYPES[k];
+  for (let k = 0; k < ND; k++) {
+    const type = k < N ? DOOR_TYPES[k] : LOCKED_DOOR_TYPE; // the sixth never changes
     const handle = type.build(doorW(k) + 0.25, doorH(k) + 0.15);
     const z = doorZ(k);
     handle.group.position.set(0, 0, z);
     handle.open(0);
     root.add(handle.group);
     mkDoorwayWall(z, k);
-    const hue = (k / N) * 0.8 + 0.05;
+    const hue = (k / ND) * 0.8 + 0.05;
     const col = new THREE.Color().setHSL(hue, 0.55, 0.55);
     const lamp = new THREE.PointLight(col.getHex(), 0.9, 14, 2);
     lamp.position.set(0, segH(k + 1) - 0.7, z + 1.6);
@@ -199,7 +200,7 @@ export function revealDoors(ctx: GameContext): void {
 
     // The LAST door has a knob AND a keyhole — and it's locked. Only the key
     // (hidden behind you in the first room) opens it.
-    if (k === N - 1) {
+    if (k === ND - 1) {
       slot.manual = true; // won't open on approach
       const lockMat = new THREE.MeshStandardMaterial({ color: 0x44474e, roughness: 0.5, metalness: 0.7 });
       const plate = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.5, 0.08), lockMat);
@@ -227,13 +228,13 @@ export function revealDoors(ctx: GameContext): void {
         slot.opened = true; // the proximity updater eases it open
         it.promptLabel = '';
         whoosh();
-        ctx.narrate('The key turns. The lock gives. The last door swings wide.', 4500, { priority: true });
+        ctx.narrate('The key turns. The lock gives. And the last door — a door that takes a bow.', 5500, { priority: true });
       };
     }
   }
 
   // Ceiling lamps down the length so the long corridors stay navigable.
-  for (let k = 0; k <= N; k++) {
+  for (let k = 0; k <= ND; k++) {
     const l = new THREE.PointLight(0xb0b6c6, 0.7, 22, 2);
     l.position.set(0, segH(k) - 0.4, (segHiZ(k) + segLoZ(k)) / 2);
     root.add(l);
@@ -253,7 +254,7 @@ export function revealDoors(ctx: GameContext): void {
   // Walk region = room + each growing segment + the exit room (overlapping seams).
   const room: RoomBounds = { minX: -ROOM_W / 2, maxX: ROOM_W / 2, minZ: FRONT, maxZ: ROOM_D / 2 };
   const segRegions: RoomBounds[] = [];
-  for (let k = 0; k <= N; k++) {
+  for (let k = 0; k <= ND; k++) {
     const w = segW(k);
     segRegions.push({ minX: -w / 2, maxX: w / 2, minZ: segLoZ(k) - 1, maxZ: segHiZ(k) + 1 });
   }
@@ -286,9 +287,7 @@ export function revealDoors(ctx: GameContext): void {
   const reshuffleDoors = () => {
     walk = Math.min(2, walk + 1);
     for (let k = 0; k < N; k++) {
-      // The locked door swaps only on the SECOND reshuffle — during the first
-      // the player is standing right in front of it and would see the switch.
-      if (k === N - 1 && walk === 1) continue;
+      // Only the five changing doors — the locked sixth keeps its one mechanism.
       const s = slots[k];
       const type = DOOR_TYPES[walk * N + k];
       root.remove(s.handle.group);
@@ -299,11 +298,9 @@ export function revealDoors(ctx: GameContext): void {
       root.add(handle.group);
       s.handle = handle;
       s.name = type.name;
-      if (k < N - 1) {
-        s.opened = false;
-        s.progress = 0;
-        s.manual = false; // even the first door's knob has dropped the formality
-      }
+      s.opened = false;
+      s.progress = 0;
+      s.manual = false; // even the first door's knob has dropped the formality
     }
     if (knob0) knob0.promptLabel = '';
     shuffled = true;
@@ -366,8 +363,8 @@ export function revealDoors(ctx: GameContext): void {
   });
 
   // Pity the locked last door when you first reach it.
-  const lastSlot = slots[N - 1];
-  const lastZ = doorZ(N - 1);
+  const lastSlot = slots[ND - 1];
+  const lastZ = doorZ(ND - 1);
   addUpdater(() => {
     if (lastSlot.opened) return true;
     if (player.z < lastZ + 6 && player.z > lastZ - 1) {
@@ -428,7 +425,7 @@ export function revealDoors(ctx: GameContext): void {
     });
   };
   // Skip segment 0 (the spawn room); trap roughly half the corridors, 1–2 plates each.
-  for (let k = 1; k <= N; k++) {
+  for (let k = 1; k <= ND; k++) {
     if (Math.random() < 0.5) continue;
     const w = segW(k);
     const plates = Math.random() < 0.4 ? 2 : 1;
