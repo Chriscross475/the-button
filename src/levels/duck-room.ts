@@ -334,7 +334,7 @@ export function revealDucks(ctx: GameContext): void {
   ]);
   // Resolution lines — the corridor opens, with (or without) a reward.
   const RESOLVE_LINES: Record<'wolf' | 'stand' | 'none' | 'wolf-freed', string> = vo({
-    wolf: 'A baby wolf. It has decided you are its mother. God help you both. The wall is gone — take your prize, and go.',
+    wolf: 'A baby wolf. It has decided you are its mother. God help you both. Take your prize, and go.',
     stand: 'Five ducks saved, and the farm sold every one. Peking duck now, lacquered and turning. Bitter — but they wired you your cut: one hundred dollars. The corridor is open. Spend it well.',
     none: 'Every last duck, used up. No wolf to feed, no stand to fill — just an empty pen. There is your way out. There is no prize. Off you go.',
     'wolf-freed': 'The gate falls. The wolf — fed, content, inexplicably fond of you — pads out and falls into step behind you. The way is open. Try not to think about its teeth.',
@@ -600,6 +600,7 @@ export function revealDucks(ctx: GameContext): void {
       rb,
     ]);
     if (path === 'wolf') {
+      ctx.narrate('The wall is gone. Something is waiting for you.', 5000, { priority: true });
       // The wolf line lands when you actually MEET it — stepping into the end
       // room — not back at the pens when the corridor opens.
       let met = false;
