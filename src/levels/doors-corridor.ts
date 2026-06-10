@@ -26,11 +26,20 @@ defineCombine('key', 'door-lock', (held) => {
 // you pick up the key) every door swaps to a DIFFERENT mechanism, closed, so
 // both long walks re-open ten unfamiliar doors. See reshuffleDoors().
 const RESHUFFLE_NOTICE = vo('Hm. That is not how that door opened before. They have been reconsidering themselves.');
-const RESHUFFLE_QUIPS = vo([
-  'A second opinion.',
+const KEY_TEASE = vo(
+  'There is a key, incidentally. I have known where it is since before you pressed the button. It is in the first room — behind where you started. I thought the walk would be good for you.',
+);
+const WALKBACK_QUIPS = vo([
+  'I could have told you it was locked ten doors ago. I want you to know that I considered it.',
   'They do this when they are nervous.',
+  'I did consider mentioning the key earlier. It seemed funnier unmentioned. I stand by that.',
   'Everyone is reinventing themselves today.',
+  'Nearly there. The key has not moved. Probably.',
+]);
+const FORWARD_QUIPS = vo([
+  'Yes, yes. Very dramatic. Keep walking.',
   'That one practised while you were gone.',
+  'The lock, at least, has remained itself. Cherish that.',
 ]);
 const RESHUFFLE_AGAIN = vo('And now they have all changed again. The key has made everyone self-conscious.');
 
@@ -269,10 +278,11 @@ export function revealDoors(ctx: GameContext): void {
   //    with a rotated mechanism, closed — each pass re-opens ten changed doors.
   //    A rotation (never identity) guarantees EVERY door differs from last time. ──
   let shuffled = false;
+  let keyShuffled = false; // second reshuffle (key pickup) switches the quip pool
   let pendingNotice = false; // the first re-opened door gets the "hm." line
   let lastRot = 0;
   let reopened = 0;
-  let quipIdx = Math.floor(Math.random() * RESHUFFLE_QUIPS.length);
+  let quipIdx = 0;
   const reshuffleDoors = () => {
     let r = lastRot;
     while (r === lastRot) r = 1 + Math.floor(Math.random() * (N - 2));
@@ -295,17 +305,24 @@ export function revealDoors(ctx: GameContext): void {
     if (knob0) knob0.promptLabel = '';
     shuffled = true;
     reopened = 0;
+    quipIdx = 0; // each phase reads its pool from the top
   };
   const announceDoor = (s: DoorSlot) => {
+    // First pass: the names introduce each mechanism. After a reshuffle the
+    // names are old news — the narrator needles you about the key instead,
+    // every other door, and lets the rest open in pointed silence.
+    if (!shuffled) {
+      ctx.narrate(s.name, 2600);
+      return;
+    }
     if (pendingNotice) {
       pendingNotice = false;
       ctx.narrate(RESHUFFLE_NOTICE, 4500);
-      ctx.narrate(s.name, 2600);
-    } else if (shuffled && ++reopened % 3 === 0) {
-      ctx.narrate(RESHUFFLE_QUIPS[quipIdx++ % RESHUFFLE_QUIPS.length], 2600); // a quip instead of the name, every third door
-    } else {
-      ctx.narrate(s.name, 2600);
+      return;
     }
+    if (++reopened % 2 === 1) return;
+    const pool = keyShuffled ? FORWARD_QUIPS : WALKBACK_QUIPS;
+    ctx.narrate(pool[quipIdx++ % pool.length], 3600);
   };
 
   // Proximity opening — symmetric band, so doors also open when approached from
@@ -332,7 +349,6 @@ export function revealDoors(ctx: GameContext): void {
   const key = createAsset('key');
   key.position.set(1.8, 0.45, ROOM_D / 2 - 1.0);
   root.add(key);
-  let keyShuffled = false;
   ctx.addCarryable({
     kind: 'key',
     object: key,
@@ -353,6 +369,7 @@ export function revealDoors(ctx: GameContext): void {
     if (lastSlot.opened) return true;
     if (player.z < lastZ + 6 && player.z > lastZ - 1) {
       ctx.narrate('The final door. A knob, and a keyhole. Locked, of course. They always are.', 5000, { priority: true });
+      ctx.narrate(KEY_TEASE, 10000); // queues behind the pity line — the confession IS the gag
       reshuffleDoors(); // behind your back, the whole corridor reconsiders
       pendingNotice = true;
       return true;
