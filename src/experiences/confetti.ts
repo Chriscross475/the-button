@@ -3,16 +3,17 @@ import type { Experience, ExperienceContext } from './registry';
 import { addUpdater } from './scheduler';
 import { pick } from './util';
 import { sparkle } from '../audio/sfx';
+import { vo } from '../audio/vo-shared';
 
 // A celebratory confetti burst above the player. Unlike most experiences these
 // bits are temporary — they flutter down and clean themselves up.
 
-const LINES = [
+const LINES = vo([
   'Congratulations.',
   'You did it. You pressed the button.',
   'A celebration. For you. Specifically.',
   'Hooray, etc.',
-];
+]);
 
 const COLORS = [0xff4d6d, 0xffd23f, 0x4dd2ff, 0x6dff77, 0xc77dff, 0xff944d];
 

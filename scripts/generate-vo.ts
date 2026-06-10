@@ -43,19 +43,55 @@ function unescapeLiteral(raw: string): string {
     c === 'n' ? '\n' : c === 'r' ? '\r' : c === 't' ? '\t' : c);
 }
 
+/** The span of the balanced (...) starting at `open` (string-aware), or null. */
+function parenSpan(code: string, open: number): string | null {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = open; i < code.length; i++) {
+    const c = code[i];
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+    } else if (c === "'" || c === '"' || c === '`') quote = c;
+    else if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) return code.slice(open + 1, i);
+  }
+  return null;
+}
+
+const LITERAL = /(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+
+function addLiterals(snippet: string, lines: Set<string>): number {
+  let dynamic = 0;
+  let m: RegExpExecArray | null;
+  const re = new RegExp(LITERAL.source, 'g');
+  while ((m = re.exec(snippet)) !== null) {
+    if (m[1] === '`' && m[2].includes('${')) { dynamic++; continue; } // dynamic → live path
+    const text = unescapeLiteral(m[2]).trim();
+    if (text) lines.add(text);
+  }
+  return dynamic;
+}
+
 function collectLines(): string[] {
   const lines = new Set<string>();
   let dynamic = 0;
   for (const f of tsFiles(SRC)) {
     const code = readFileSync(f, 'utf8');
+    // narrate('...') — an inline literal first argument.
     const re = /narrate\s*\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g; // per-file (fresh lastIndex)
     let m: RegExpExecArray | null;
     while ((m = re.exec(code)) !== null) {
-      const quote = m[1];
-      const raw = m[2];
-      if (quote === '`' && raw.includes('${')) { dynamic++; continue; } // dynamic → live path
-      const text = unescapeLiteral(raw).trim();
+      if (m[1] === '`' && m[2].includes('${')) { dynamic++; continue; } // dynamic → live path
+      const text = unescapeLiteral(m[2]).trim();
       if (text) lines.add(text);
+    }
+    // vo(...) — fixed lines declared away from the narrate call (arrays, consts,
+    // record values). Every string literal inside the balanced span is baked.
+    const voRe = /\bvo\s*\(/g;
+    while ((m = voRe.exec(code)) !== null) {
+      const span = parenSpan(code, m.index + m[0].length - 1);
+      if (span) dynamic += addLiterals(span, lines);
     }
   }
   if (dynamic) console.log(`  note: ${dynamic} dynamic line(s) with \${} left to the live path`);

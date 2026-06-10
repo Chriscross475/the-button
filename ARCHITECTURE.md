@@ -138,11 +138,12 @@ Everything a level/experience can do, grouped:
   source for `narrate('literal')`, synthesises each (kokoro `bm_george`, tuned
   pauses baked in), writes `public/vo/<hash>.wav` + `src/audio/vo-manifest.json`.
   Runtime plays the bundled WAV instantly; falls back to live `/api/tts` then Web Speech.
-- **Rules:** keep spoken lines **fixed string literals** (no `${}`) so they bake;
-  put dynamic numbers in the HUD, not the voice line. Re-run `npm run vo` and
+- **Rules:** keep spoken lines **fixed strings** (no `${}`) so they bake; put
+  dynamic numbers in the HUD, not the voice line. Inline `narrate('literal')`
+  calls bake automatically; lines stored in a `const` / rotation array / record
+  must be wrapped in **`vo(...)`** (`src/audio/vo-shared.ts`) — the scanner
+  extracts every string literal inside the marker. Re-run `npm run vo` and
   commit the WAVs + manifest after adding/editing a line.
-  *(Known gap: lines stored in a `const`/`pick([...])` aren't baked yet — they
-  use the slow live path. Prefer inline literals until the baker covers them.)*
 
 ---
 

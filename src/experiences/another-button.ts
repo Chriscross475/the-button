@@ -6,6 +6,7 @@ import { pick, freeRoomPos } from './util';
 import { whoosh, blip, pop } from '../audio/sfx';
 import { spawnPedestalButton, type SpawnedButton } from '../button/pedestal-button';
 import { buildExitRoom } from '../levels/exit-room';
+import { vo } from '../audio/vo-shared';
 
 // THE BUTTON GAG. Press the button and it makes ANOTHER button — somewhere new.
 // Only the NEWEST one does anything; the rest are spent duds (pressing one is a
@@ -18,21 +19,21 @@ import { buildExitRoom } from '../levels/exit-room';
 
 const TO_WIN = 10;
 const MISTAKES_TO_B = 5;
-const SETUP = 'Another button. And it breeds. Only the NEWEST does anything — find it. No mistakes, now.';
-const MORE = [
+const SETUP = vo('Another button. And it breeds. Only the NEWEST does anything — find it. No mistakes, now.');
+const MORE = vo([
   'Right. A fresh one, somewhere new.',
   'Good. Keep the streak.',
   'Yes. There is a new one now. Go.',
   'Correct. Do that flawlessly a few more times.',
   'One down. Several to go. Without errors, ideally.',
-];
-const MISTAKE = [
+]);
+const MISTAKE = vo([
   'Wrong. That one is spent. Do keep up.',
   'No. A dud. You were watching, surely.',
   'Already pressed. We both saw it happen.',
   'A mistake. The live one is elsewhere. Obviously.',
   'Close. Well — not close. But the effort is noted.',
-];
+]);
 
 export const anotherButton: Experience = {
   id: 'another-button',

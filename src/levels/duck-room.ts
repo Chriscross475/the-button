@@ -8,6 +8,7 @@ import { setCounter, hideCounter } from '../ui/counter';
 import { defineCombine, type Carryable } from '../game/combine';
 import { createAsset } from '../assets';
 import { buildExitRoom } from './exit-room';
+import { vo } from '../audio/vo-shared';
 
 // A LEVEL — the duck room, reworked into a dark, comedic moral-choice level.
 // A dispenser pedestal vends ONE cute, wandering duck per press. Reach 50 and
@@ -276,40 +277,40 @@ export function revealDucks(ctx: GameContext): void {
 
   // Five distinct lines per outcome, served via shuffleBag() so all five play
   // before any repeats (no same-line-twice within a streak).
-  const SAW_LINES = [
+  const SAW_LINES = vo([
     'Oh. Oh no. Well. You chose that.',
     'That one had a name, probably. Not anymore.',
     'A clean cut. The narrator looks away.',
     'You did the thing. You knew, and you did the thing.',
     'The saw does not judge. I, however, do.',
-  ];
-  const FARM_LINES = [
+  ]);
+  const FARM_LINES = vo([
     'A good home. The duck is thrilled.',
     'It found friends. It found food. It found peace.',
     'Saved. For now you are a hero.',
     'The right pen. The narrator nods, surprised.',
     'Mercy. From you. I will need a moment.',
-  ];
-  const WOLF_LINES = [
+  ]);
+  const WOLF_LINES = vo([
     'The wolf eats. Grim, but at least nothing was wasted.',
     'Fed. A purpose, of sorts. The wolf approves.',
     'Nature, red in tooth and claw, and now well catered.',
     'Down in one. The wolf does not believe in chewing.',
     'The circle of life, with you as its enthusiastic middleman.',
-  ];
-  const WOLF_OPEN_LINE = 'Fine. You clearly enjoy this. Let us at least give it a purpose.';
-  const SAW_SCOLD_LINE = 'Ah. I see. It is not about food at all. It matters to you that YOU are the one who kills.';
-  const RESCUE_PRAISE_LINE = 'And now, of course, you decide to do the right thing. How convenient for your conscience.';
+  ]);
+  const WOLF_OPEN_LINE = vo('Fine. You clearly enjoy this. Let us at least give it a purpose.');
+  const SAW_SCOLD_LINE = vo('Ah. I see. It is not about food at all. It matters to you that YOU are the one who kills.');
+  const RESCUE_PRAISE_LINE = vo('And now, of course, you decide to do the right thing. How convenient for your conscience.');
   // The rescue twist — sarcastic, pitying, Stanley-Parable.
   const STAND_OPEN_LINE =
-    'The ducks, saved. A hero. And the farm, being a business, sold every one. There they are now — Peking duck, lacquered and golden, turning on the spit. Your good intentions, it turns out, come with a rather bitter aftertaste.';
-  const STAND_LINES = [
+    vo('The ducks, saved. A hero. And the farm, being a business, sold every one. There they are now — Peking duck, lacquered and golden, turning on the spit. Your good intentions, it turns out, come with a rather bitter aftertaste.');
+  const STAND_LINES = vo([
     'Another life saved. Another duck for the rotisserie.',
     'Rescued, glazed, and slowly rotating. The mercy continues.',
     'You give them a future. The future is hoisin sauce.',
     'So kind. The chef thanks you for the steady supply.',
     'Saved from the saw, delivered to the spit. Progress.',
-  ];
+  ]);
   // No-repeat pickers (one shuffled bag each).
   const sawLine = shuffleBag(SAW_LINES);
   const farmLine = shuffleBag(FARM_LINES);
@@ -317,27 +318,27 @@ export function revealDucks(ctx: GameContext): void {
   const standLine = shuffleBag(STAND_LINES);
   // Throwing ducks AT the stand → "hire" them. Sarcastic, delighted-with-you.
   const EMPLOYEE_OPEN_LINE =
-    'Oh — yes. Brilliant. Why merely cook them when they could STAFF the place? Their labour as well as their lives. You should be running this country.';
-  const EMPLOYEE_LINES = [
+    vo('Oh — yes. Brilliant. Why merely cook them when they could STAFF the place? Their labour as well as their lives. You should be running this country.');
+  const EMPLOYEE_LINES = vo([
     'Another new hire. Unpaid, of course. It is a duck.',
     'Welcome aboard. The employee handbook is also the menu.',
     'More staff. The stand has never been so productive, or so doomed.',
     'Good. Someone has to work the till before they work the spit.',
-  ];
+  ]);
   // Keeping two ducks in the air at once — sarcastic admiration.
-  const JUGGLE_LINES = [
+  const JUGGLE_LINES = vo([
     'Oh, we are juggling them now. The ducks are thrilled, I am certain.',
     'Two ducks airborne at once. A circus act. Truly, your parents must be proud.',
     'Juggling. Genuinely. This is what you have chosen to do with your time.',
     'Keep them up, then. Their small lives, quite literally, in your hands.',
-  ];
+  ]);
   // Resolution lines — the corridor opens, with (or without) a reward.
-  const RESOLVE_LINES: Record<'wolf' | 'stand' | 'none' | 'wolf-freed', string> = {
+  const RESOLVE_LINES: Record<'wolf' | 'stand' | 'none' | 'wolf-freed', string> = vo({
     wolf: 'A baby wolf. It has decided you are its mother. God help you both. The wall is gone — take your prize, and go.',
     stand: 'Five ducks saved, and the farm sold every one. Peking duck now, lacquered and turning. Bitter — but they wired you your cut: one hundred dollars. The corridor is open. Spend it well.',
     none: 'Every last duck, used up. No wolf to feed, no stand to fill — just an empty pen. There is your way out. There is no prize. Off you go.',
     'wolf-freed': 'The gate falls. The wolf — fed, content, inexplicably fond of you — pads out and falls into step behind you. The way is open. Try not to think about its teeth.',
-  };
+  });
 
   // Carry callback: a duck was grabbed (the GLOBAL carry chose it + the hand).
   const grabDuck = (duck: Duck) => {
@@ -394,11 +395,11 @@ export function revealDucks(ctx: GameContext): void {
   };
 
   const HARD_IMPACT = 9; // m/s — land harder than this on bare ground and it splats
-  const SPLAT_LINES = [
+  const SPLAT_LINES = vo([
     'Too high. Gravity finishes what you started.',
     'It went up. It came down. It did not get up.',
     'A long way up, a short way to the floor.',
-  ];
+  ]);
 
   const onLand = (duck: Duck, impact = 0) => {
     throwCount++;

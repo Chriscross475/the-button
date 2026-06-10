@@ -38,7 +38,9 @@ At runtime a fixed line plays its bundled WAV; anything not baked — dynamic li
 missing asset — falls back to the live `POST /api/tts` kokoro (Vite proxies it to
 `localhost:37777` in dev; Caddy routes it to the Oracle server in prod), then to the
 browser's Web Speech voice. Keep spoken lines as fixed
-string literals so they all pre-bake.
+string literals so they all pre-bake; lines stored in consts/arrays (rotation
+pools, death lines) must be wrapped in `vo(...)` (src/audio/vo-shared.ts) so the
+scanner finds them.
 
 ## Deploy
 

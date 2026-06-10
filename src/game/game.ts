@@ -34,6 +34,7 @@ import type { GameContext, Level, LevelInstance, ControlMode, FlightWall } from 
 import type { Experience } from '../experiences/registry';
 import { pick } from '../experiences/util';
 import { pickExperience, getExperience, setLastExperience } from '../experiences/registry';
+import { vo } from '../audio/vo-shared';
 
 // Launch (flight) tuning.
 const FLIGHT_GRAVITY = 16;
@@ -64,13 +65,13 @@ function segmentBoxEntry(a: THREE.Vector3, b: THREE.Vector3, w: FlightWall): num
   return t0;
 }
 
-const DEATH_LINES = [
+const DEATH_LINES = vo([
   'You died. The button does not mourn.',
   'Dead. We will say no more about it.',
   'That went poorly. Try the other one.',
   'You have been removed from the situation. Forcefully.',
   'Physics: 1. You: 0.',
-];
+]);
 
 export class Game {
   readonly scene = new THREE.Scene();

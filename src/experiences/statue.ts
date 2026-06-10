@@ -4,16 +4,17 @@ import { addUpdater } from './scheduler';
 import { pick, freeRoomPos } from './util';
 import { thud } from '../audio/sfx';
 import { createAsset } from '../assets';
+import { vo } from '../audio/vo-shared';
 
 // A blocky humanoid statue drops from above, lands with a thud, and stays —
 // silently judging the room.
 
-const LINES = [
+const LINES = vo([
   'A statue of you. It looks disappointed.',
   'Behold: art.',
   'Someone left this here. It was probably you.',
   'It will watch you now. Forever. No pressure.',
-];
+]);
 
 export const statue: Experience = {
   id: 'statue',
