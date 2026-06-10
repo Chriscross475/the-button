@@ -6,8 +6,9 @@ import { vo } from '../audio/vo-shared';
 //
 // Two rules the corridor relies on:
 //   1. At p = 0 every door FULLY COVERS its w×h opening (no see-through gaps).
-//   2. The list is ordered SIMPLE → COMPLEX; the corridor assigns them in
-//      order, so each successive door opens in a more elaborate way.
+//   2. The list is THREE SETS of five, one set per walk (out, back, the key
+//      trip) — the corridor assigns DOOR_TYPES[walk * 5 + k] to door k. Each
+//      set runs SIMPLE → COMPLEX, so every walk escalates afresh.
 
 export interface DoorHandle {
   group: THREE.Group; // positioned + rotated by the caller (placed in the wall)
@@ -65,6 +66,8 @@ const HALF_PI = Math.PI / 2;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 export const DOOR_TYPES: DoorType[] = [
+  // ── Set 1 — the first walk. ──
+
   // 1 — swing: one leaf on a side hinge, with a knob; opens toward the front.
   {
     id: 'swing',
@@ -147,6 +150,8 @@ export const DOOR_TYPES: DoorType[] = [
       };
     },
   },
+
+  // ── Set 2 — the walk back. ──
 
   // 7 — split: two leaves slide apart sideways into the walls.
   {
@@ -245,6 +250,22 @@ export const DOOR_TYPES: DoorType[] = [
     },
   },
 
+  // 10 — sink: one leaf drops into the floor. (Held by the locked door's
+  // walk-back slot, which is never seen opening — by design the most modest.)
+  {
+    id: 'sink-floor',
+    name: vo('a door that sinks into the floor.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const l = leaf(w, h);
+      l.position.set(0, h / 2, 0);
+      g.add(l);
+      return { group: g, open: (p) => (l.position.y = h / 2 - p * (h + 0.3)) };
+    },
+  },
+
+  // ── Set 3 — the key trip. ──
+
   // 11 — dissolve: a grid of tiles that shrink away in a sweep.
   {
     id: 'grid-dissolve',
@@ -269,6 +290,108 @@ export const DOOR_TYPES: DoorType[] = [
             const local = clamp01((p - t.delay * 0.55) / (1 - t.delay * 0.55));
             t.mesh.scale.setScalar(Math.max(0.001, 1 - local));
           }
+        },
+      };
+    },
+  },
+
+  // 12 — blind: horizontal slats gather and squash up into the lintel,
+  // bottom-first, like a roller blind.
+  {
+    id: 'roll-up',
+    name: vo('a door that rolls up like a blind.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const SLATS = 6;
+      const sh = h / SLATS;
+      const slats: { mesh: THREE.Mesh; y0: number; delay: number }[] = [];
+      for (let i = 0; i < SLATS; i++) {
+        const m = leaf(w, sh * 1.04, i % 2 ? PANEL2 : PANEL);
+        const y0 = (i + 0.5) * sh;
+        m.position.set(0, y0, 0);
+        g.add(m);
+        slats.push({ mesh: m, y0, delay: i / SLATS });
+      }
+      return {
+        group: g,
+        open: (p) => {
+          for (const sl of slats) {
+            const local = clamp01((p - sl.delay * 0.5) / (1 - sl.delay * 0.5));
+            sl.mesh.position.y = sl.y0 + local * (h + 0.25 - sl.y0);
+            sl.mesh.scale.y = Math.max(0.16, 1 - local * 0.84);
+          }
+        },
+      };
+    },
+  },
+
+  // 13 — accordion: vertical pleats angle and pack toward the left jamb.
+  {
+    id: 'accordion',
+    name: vo('a door that folds like an accordion.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const FOLDS = 6;
+      const fw = w / FOLDS;
+      const strips: THREE.Mesh[] = [];
+      for (let i = 0; i < FOLDS; i++) {
+        const m = leaf(fw * 1.06, h, i % 2 ? PANEL2 : PANEL);
+        m.position.set(-w / 2 + (i + 0.5) * fw, h / 2, 0);
+        g.add(m);
+        strips.push(m);
+      }
+      return {
+        group: g,
+        open: (p) => {
+          const packed = fw * 0.22;
+          for (let i = 0; i < FOLDS; i++) {
+            const m = strips[i];
+            const x0 = -w / 2 + (i + 0.5) * fw;
+            const x1 = -w / 2 + (i + 0.5) * packed;
+            m.position.x = x0 + (x1 - x0) * p;
+            m.scale.x = 1 - p * 0.78;
+            m.rotation.y = (i % 2 ? 1 : -1) * p * 0.9; // the pleat angle sells the fold
+          }
+        },
+      };
+    },
+  },
+
+  // 14 — twirl: the leaf spins about its vertical centre and thins to nothing.
+  {
+    id: 'twirl',
+    name: vo('a door that twirls away.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const piv = hinged(leaf(w, h), 0, 0, 0, h / 2);
+      g.add(piv);
+      return {
+        group: g,
+        open: (p) => {
+          piv.rotation.y = p * Math.PI * 4; // two full turns
+          const sc = Math.max(0.001, 1 - p);
+          piv.scale.set(sc, 1, sc); // spins itself thin
+        },
+      };
+    },
+  },
+
+  // 15 — bow: the finale, on the locked door. It leans politely toward the
+  // player, then excuses itself through the floor.
+  {
+    id: 'bow',
+    name: vo('a door that takes a bow.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const piv = hinged(leaf(w, h), 0, 0, 0, h / 2); // pivot at the base
+      g.add(piv);
+      return {
+        group: g,
+        open: (p) => {
+          const lean = Math.min(1, p / 0.45);
+          const sink = clamp01((p - 0.45) / 0.55);
+          piv.rotation.x = lean * 0.5; // a modest bow toward the player…
+          piv.position.y = -sink * (h + 0.6); // …then it excuses itself
         },
       };
     },

@@ -23,14 +23,14 @@ defineCombine('key', 'door-lock', (held) => {
 });
 
 // The doors' second opinions — once you've met the locked door (and again when
-// you pick up the key) every door swaps to a DIFFERENT mechanism, closed, so
-// both long walks re-open ten unfamiliar doors. See reshuffleDoors().
+// you pick up the key) every door swaps to the next walk's mechanism set,
+// closed — three walks, three sets, fifteen mechanisms. See reshuffleDoors().
 const RESHUFFLE_NOTICE = vo('Hm. That is not how that door opened before. They have been reconsidering themselves.');
 const KEY_TEASE = vo(
   'There is a key, incidentally. I have known where it is since before you pressed the button. It is in the first room — behind where you started. I thought the walk would be good for you.',
 );
 const WALKBACK_QUIPS = vo([
-  'I could have told you it was locked ten doors ago. I want you to know that I considered it.',
+  'I could have told you it was locked five doors ago. I want you to know that I considered it.',
   'They do this when they are nervous.',
   'I did consider mentioning the key earlier. It seemed funnier unmentioned. I stand by that.',
   'Everyone is reinventing themselves today.',
@@ -51,15 +51,15 @@ const RESHUFFLE_AGAIN = vo('And now they have all changed again. The key has mad
 // wider + taller than the last, and every door is a little bigger too.
 
 const SEG = 20; // length of each corridor segment (door to door)
-const N = DOOR_TYPES.length; // one of each door, in complexity order
+const N = 5; // doors per walk; DOOR_TYPES holds N × 3 mechanisms (one set per walk)
 const OPEN_DIST = 7;
 
 // Base sizes + per-step growth (segment/door index k = 0,1,2,…). The corridor
-// and doors scale up noticeably with each step.
-const WC0 = 7, WC_STEP = 1.3; // corridor width
-const H0 = 5.5, H_STEP = 0.6; // corridor height
-const DW0 = 2.4, DW_STEP = 0.32; // door width
-const DH0 = 3.2, DH_STEP = 0.26; // door height
+// and doors scale up noticeably with each step (steps sized for N = 5).
+const WC0 = 7, WC_STEP = 2.4; // corridor width
+const H0 = 5.5, H_STEP = 1.1; // corridor height
+const DW0 = 2.4, DW_STEP = 0.6; // door width
+const DH0 = 3.2, DH_STEP = 0.5; // door height
 const segW = (k: number) => WC0 + k * WC_STEP;
 const segH = (k: number) => H0 + k * H_STEP;
 const doorW = (k: number) => DW0 + k * DW_STEP;
@@ -280,16 +280,17 @@ export function revealDoors(ctx: GameContext): void {
   let shuffled = false;
   let keyShuffled = false; // second reshuffle (key pickup) switches the quip pool
   let pendingNotice = false; // the first re-opened door gets the "hm." line
-  let lastRot = 0;
+  let walk = 0; // 0 = first walk, 1 = walk back, 2 = the key trip — each gets its own set
   let reopened = 0;
   let quipIdx = 0;
   const reshuffleDoors = () => {
-    let r = lastRot;
-    while (r === lastRot) r = 1 + Math.floor(Math.random() * (N - 2));
-    lastRot = r;
-    for (let k = 0; k < N - 1; k++) {
+    walk = Math.min(2, walk + 1);
+    for (let k = 0; k < N; k++) {
+      // The locked door swaps only on the SECOND reshuffle — during the first
+      // the player is standing right in front of it and would see the switch.
+      if (k === N - 1 && walk === 1) continue;
       const s = slots[k];
-      const type = DOOR_TYPES[(k + r) % (N - 1)];
+      const type = DOOR_TYPES[walk * N + k];
       root.remove(s.handle.group);
       disposeTree(s.handle.group); // mid-level swap: free the old door's GPU resources
       const handle = type.build(doorW(k) + 0.25, doorH(k) + 0.15);
@@ -298,14 +299,16 @@ export function revealDoors(ctx: GameContext): void {
       root.add(handle.group);
       s.handle = handle;
       s.name = type.name;
-      s.opened = false;
-      s.progress = 0;
-      s.manual = false; // even the first door's knob has dropped the formality
+      if (k < N - 1) {
+        s.opened = false;
+        s.progress = 0;
+        s.manual = false; // even the first door's knob has dropped the formality
+      }
     }
     if (knob0) knob0.promptLabel = '';
     shuffled = true;
     reopened = 0;
-    quipIdx = 0; // each phase reads its pool from the top
+    quipIdx = 0; // each walk reads its pool from the top
   };
   const announceDoor = (s: DoorSlot) => {
     // First pass: the names introduce each mechanism. After a reshuffle the
@@ -320,7 +323,7 @@ export function revealDoors(ctx: GameContext): void {
       ctx.narrate(RESHUFFLE_NOTICE, 4500);
       return;
     }
-    if (++reopened % 2 === 1) return;
+    if (++reopened % 2 === 0) return; // every other door opens in pointed silence
     const pool = keyShuffled ? FORWARD_QUIPS : WALKBACK_QUIPS;
     ctx.narrate(pool[quipIdx++ % pool.length], 3600);
   };
