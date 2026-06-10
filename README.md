@@ -37,8 +37,8 @@ fast, then **commit** `public/vo/*.wav` + the manifest.
 At runtime a fixed line plays its bundled WAV; anything not baked — dynamic lines, or a
 missing asset — falls back to the live `POST /api/tts` kokoro (Vite proxies it to
 `localhost:37777` in dev; Caddy routes it to the Oracle server in prod), then to the
-browser's Web Speech voice. A **VOICE: KOKORO / BASIC** menu toggle forces the browser
-voice. Keep spoken lines as fixed string literals so they all pre-bake.
+browser's Web Speech voice. Keep spoken lines as fixed
+string literals so they all pre-bake.
 
 ## Deploy
 

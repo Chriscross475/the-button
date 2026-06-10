@@ -1,4 +1,4 @@
-import { toggleTts, isTtsEnabled, getTtsMode, cycleTtsMode } from '../audio/tts';
+import { toggleTts, isTtsEnabled } from '../audio/tts';
 
 // The main menu. A clean, bright, deadpan title card — the inverse of the dark
 // dungeon the engine came from. Full-screen vanilla-DOM overlay (same shape as
@@ -148,19 +148,6 @@ export function showMainMenu(opts: MainMenuOptions): void {
     narr.textContent = `NARRATOR: ${on ? 'ON' : 'OFF'}`;
   });
   links.appendChild(narr);
-
-  // Voice source: server kokoro (good neural voice) vs the basic browser voice.
-  const sepV = document.createElement('span');
-  sepV.textContent = '·';
-  sepV.style.color = 'rgba(30,30,30,0.35)';
-  links.appendChild(sepV);
-  const voiceLabel = (m: string) => `VOICE: ${m === 'kokoro' ? 'KOKORO' : 'BASIC'}`;
-  const voiceBtn = makeLink(voiceLabel(getTtsMode()));
-  voiceBtn.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    voiceBtn.textContent = voiceLabel(cycleTtsMode());
-  });
-  links.appendChild(voiceBtn);
 
   // Pause menu: a way back to a fresh first room.
   if (paused && opts.onRestart) {
