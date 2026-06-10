@@ -10,6 +10,8 @@ import { whoosh, pop, thud } from '../audio/sfx';
 import { buildExitRoom } from './exit-room';
 import { createAsset } from '../assets';
 import { defineCombine, type Carryable } from '../game/combine';
+import { disposeTree } from '../engine/dispose';
+import { vo } from '../audio/vo-shared';
 
 // The last door is locked: combining the key (found behind you in the first
 // room) with its lock opens it. The active doors level installs the unlock.
@@ -19,6 +21,18 @@ defineCombine('key', 'door-lock', (held) => {
   pop();
   unlockLastDoor?.();
 });
+
+// The doors' second opinions — once you've met the locked door (and again when
+// you pick up the key) every door swaps to a DIFFERENT mechanism, closed, so
+// both long walks re-open ten unfamiliar doors. See reshuffleDoors().
+const RESHUFFLE_NOTICE = vo('Hm. That is not how that door opened before. They have been reconsidering themselves.');
+const RESHUFFLE_QUIPS = vo([
+  'A second opinion.',
+  'They do this when they are nervous.',
+  'Everyone is reinventing themselves today.',
+  'That one practised while you were gone.',
+]);
+const RESHUFFLE_AGAIN = vo('And now they have all changed again. The key has made everyone self-conscious.');
 
 // PATH #2 — the corridor of doors.
 //
@@ -135,6 +149,7 @@ export function revealDoors(ctx: GameContext): void {
 
   // The doors — each successive one bigger + a more elaborate open-type.
   const slots: DoorSlot[] = [];
+  let knob0: Interactable | null = null;
   for (let k = 0; k < N; k++) {
     const type = DOOR_TYPES[k];
     const handle = type.build(doorW(k) + 0.25, doorH(k) + 0.15);
@@ -170,6 +185,7 @@ export function revealDoors(ctx: GameContext): void {
         built: { group: handle.group },
       };
       registerInteractable(it);
+      knob0 = it;
     }
 
     // The LAST door has a knob AND a keyhole — and it's locked. Only the key
@@ -249,16 +265,60 @@ export function revealDoors(ctx: GameContext): void {
     return k >= 1;
   });
 
-  // Proximity opening.
+  // ── The doors reconsider. Rebuild every door (except the locked last one)
+  //    with a rotated mechanism, closed — each pass re-opens ten changed doors.
+  //    A rotation (never identity) guarantees EVERY door differs from last time. ──
+  let shuffled = false;
+  let pendingNotice = false; // the first re-opened door gets the "hm." line
+  let lastRot = 0;
+  let reopened = 0;
+  let quipIdx = Math.floor(Math.random() * RESHUFFLE_QUIPS.length);
+  const reshuffleDoors = () => {
+    let r = lastRot;
+    while (r === lastRot) r = 1 + Math.floor(Math.random() * (N - 2));
+    lastRot = r;
+    for (let k = 0; k < N - 1; k++) {
+      const s = slots[k];
+      const type = DOOR_TYPES[(k + r) % (N - 1)];
+      root.remove(s.handle.group);
+      disposeTree(s.handle.group); // mid-level swap: free the old door's GPU resources
+      const handle = type.build(doorW(k) + 0.25, doorH(k) + 0.15);
+      handle.group.position.set(0, 0, s.z);
+      handle.open(0);
+      root.add(handle.group);
+      s.handle = handle;
+      s.name = type.name;
+      s.opened = false;
+      s.progress = 0;
+      s.manual = false; // even the first door's knob has dropped the formality
+    }
+    if (knob0) knob0.promptLabel = '';
+    shuffled = true;
+    reopened = 0;
+  };
+  const announceDoor = (s: DoorSlot) => {
+    if (pendingNotice) {
+      pendingNotice = false;
+      ctx.narrate(RESHUFFLE_NOTICE, 4500);
+      ctx.narrate(s.name, 2600);
+    } else if (shuffled && ++reopened % 3 === 0) {
+      ctx.narrate(RESHUFFLE_QUIPS[quipIdx++ % RESHUFFLE_QUIPS.length], 2600); // a quip instead of the name, every third door
+    } else {
+      ctx.narrate(s.name, 2600);
+    }
+  };
+
+  // Proximity opening — symmetric band, so doors also open when approached from
+  // the far side on the walks back.
   const player = ctx.playerPos();
   addUpdater((dt) => {
     for (const s of slots) {
-      const near = !s.manual && player.z < s.z + OPEN_DIST && player.z > s.z - 2;
+      const near = !s.manual && Math.abs(player.z - s.z) < OPEN_DIST;
       if (near || s.opened) {
         if (!s.opened) {
           s.opened = true;
           whoosh();
-          ctx.narrate(s.name, 2600);
+          announceDoor(s);
         }
         s.progress = Math.min(1, s.progress + dt / 0.9);
         s.handle.open(s.progress);
@@ -272,7 +332,19 @@ export function revealDoors(ctx: GameContext): void {
   const key = createAsset('key');
   key.position.set(1.8, 0.45, ROOM_D / 2 - 1.0);
   root.add(key);
-  ctx.addCarryable({ kind: 'key', object: key, heldDist: 0.6, heldDrop: 0.28 });
+  let keyShuffled = false;
+  ctx.addCarryable({
+    kind: 'key',
+    object: key,
+    heldDist: 0.6,
+    heldDrop: 0.28,
+    onGrab: () => {
+      if (!shuffled || keyShuffled) return;
+      keyShuffled = true;
+      ctx.narrate(RESHUFFLE_AGAIN, 5500, { priority: true });
+      reshuffleDoors();
+    },
+  });
 
   // Pity the locked last door when you first reach it.
   const lastSlot = slots[N - 1];
@@ -281,6 +353,8 @@ export function revealDoors(ctx: GameContext): void {
     if (lastSlot.opened) return true;
     if (player.z < lastZ + 6 && player.z > lastZ - 1) {
       ctx.narrate('The final door. A knob, and a keyhole. Locked, of course. They always are.', 5000, { priority: true });
+      reshuffleDoors(); // behind your back, the whole corridor reconsiders
+      pendingNotice = true;
       return true;
     }
     return false;
