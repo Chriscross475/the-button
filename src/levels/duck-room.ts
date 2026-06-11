@@ -35,6 +35,7 @@ const THROW_CHARGE = 10; // m/s extra at full charge
 const MAX_CHARGE = 1.0; // s, charge cap
 const THROW_UP = 3; // m/s upward kick
 const GRAVITY = 12; // m/s^2
+const WALL_BOUNCE = 0.5; // how much speed a thrown duck keeps off a wall
 
 // Enclosures live just past the −Z ("back") wall (the wall the player faces).
 // Rectangles in world XZ. LEFT = saw, RIGHT = happy farm.
@@ -379,12 +380,23 @@ export function revealDucks(ctx: GameContext): void {
       if (!active) return true;
       if (!duck.flying) return true; // caught out of the air mid-flight
       v.y -= GRAVITY * dt;
-      duck.group.position.addScaledVector(v, dt);
+      const p = duck.group.position;
+      p.addScaledVector(v, dt);
+      // Bounce off the room walls so a thrown duck stays in the room and tumbles
+      // to the floor instead of ghosting through. A side that has OPENED (back →
+      // saw/farm, −X → wolf, +X → stand, front → exit) stays passable, so throws
+      // can still reach the enclosure beyond it.
+      const hx = w / 2 - DUCK_RADIUS;
+      const hz = d / 2 - DUCK_RADIUS;
+      if (p.x > hx && !standOpened) { p.x = hx; v.x = -v.x * WALL_BOUNCE; }
+      else if (p.x < -hx && !wolfOpened) { p.x = -hx; v.x = -v.x * WALL_BOUNCE; }
+      if (p.z > hz && !resolved) { p.z = hz; v.z = -v.z * WALL_BOUNCE; }
+      else if (p.z < -hz && !opened) { p.z = -hz; v.z = -v.z * WALL_BOUNCE; }
       spin += dt * 8;
       duck.group.rotation.set(spin, duck.group.rotation.y, spin * 0.7);
-      if (duck.group.position.y <= DUCK_RADIUS) {
+      if (p.y <= DUCK_RADIUS) {
         const impact = Math.abs(v.y); // how hard it hit (high throws fall fast)
-        duck.group.position.y = DUCK_RADIUS;
+        p.y = DUCK_RADIUS;
         duck.group.rotation.set(0, duck.group.rotation.y, 0);
         duck.flying = false;
         onLand(duck, impact);
