@@ -30,6 +30,21 @@ export const desktopScheme: InputScheme = {
       options.onFirstInput?.();
     };
 
+    // A touch synthesises compatibility mouse events (mousedown/up/click) right
+    // after touchend. Those must NOT drive the desktop path — on a phone they
+    // double-fire the tap AND call requestPointerLock, which can't hold on
+    // touch, so it instantly exits and the game reads that as "open the menu".
+    // The touch scheme already handles taps; ignore any mouse event that lands
+    // within a short window of a real touch. A genuine mouse click on a hybrid
+    // device isn't preceded by a touch, so it still works.
+    let lastTouchAt = -Infinity;
+    const fromTouch = () => performance.now() - lastTouchAt < 700;
+    const markTouch = () => {
+      lastTouchAt = performance.now();
+    };
+    canvas.addEventListener('touchstart', markTouch, { passive: true });
+    canvas.addEventListener('touchend', markTouch, { passive: true });
+
     document.addEventListener('pointerlockchange', () => {
       const nowLocked = document.pointerLockElement === canvas;
       if (nowLocked && !pointerLocked) swallowNextMove = true;
@@ -55,11 +70,13 @@ export const desktopScheme: InputScheme = {
     let mouseMovement = 0;
 
     canvas.addEventListener('mousedown', () => {
+      if (fromTouch()) return; // synthesised from a touch — let the touch scheme own it
       mouseDownAt = performance.now();
       mouseMovement = 0;
     });
 
     canvas.addEventListener('mouseup', (e) => {
+      if (fromTouch()) return; // synthesised from a touch — no double-tap, no pointer-lock
       const elapsed = performance.now() - mouseDownAt;
       const isTap = elapsed < TAP_MAX_MS && mouseMovement < TAP_MAX_PX;
       if (!isTap) return;

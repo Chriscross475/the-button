@@ -20,6 +20,7 @@ import {
   clearInteractables,
 } from '../interactables/system';
 import { findTapTarget } from '../controls/tap-target';
+import { isDesktopLike } from '../controls/platform';
 import { updateInteractPrompt } from '../ui/interact-prompt';
 import { narrate } from '../ui/narrator';
 import { createCarry, type Carry } from './combine';
@@ -249,7 +250,10 @@ export class Game {
     showMainMenu({
       onResume: () => {
         this.paused = false;
-        this.canvas.requestPointerLock?.();
+        // Desktop only: re-acquire mouse-look. On touch there's no pointer lock
+        // to hold — requesting it just bounces straight back to "unlocked", which
+        // re-opens the menu and leaves the game stuck paused.
+        if (isDesktopLike()) this.canvas.requestPointerLock?.();
       },
       onRestart: () => {
         this.paused = false;
@@ -282,7 +286,9 @@ export class Game {
     }
     const mb = document.getElementById('menu-button');
     if (mb) mb.style.display = 'flex';
-    this.canvas.requestPointerLock?.();
+    // Desktop only: jump straight into mouse-look. On touch, pointer lock can't
+    // hold and immediately exits — which the unlock handler reads as "open menu".
+    if (isDesktopLike()) this.canvas.requestPointerLock?.();
     // Opening line only on a real start (not when jumping into a test level),
     // and held until the good voice has loaded so it speaks in the right voice.
     if (intro) onVoiceReady(() => narrate('There is a button. You know what to do.', 4000, { interruptible: true }));
