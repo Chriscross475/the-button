@@ -111,7 +111,11 @@ export const touchScheme: InputScheme = {
         }
         if (isTap) {
           // canPress = right (look) half only; the left half is the joystick.
-          options.onTap?.(t.clientX, t.clientY, tracker.side === 'right');
+          // AND not while the move-stick is held: a look-zone tap shouldn't
+          // press the button mid-walk (the joystick thumb is steering, and a
+          // brief look-finger tap then reads as an accidental press).
+          const moving = activeJoystickId !== null;
+          options.onTap?.(t.clientX, t.clientY, tracker.side === 'right' && !moving);
         }
         touches.delete(t.identifier);
       }
