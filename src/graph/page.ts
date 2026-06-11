@@ -13,7 +13,6 @@ const byId = (id: string) => document.getElementById(id)!;
 const KIND_COLOR: Record<NodeKind, string> = {
   level: '#5b8fd6', gag: '#9b8bc4', item: '#e0a73e', mechanic: '#3fb0a3', reward: '#f0c948', fx: '#e08a8a',
 };
-const KIND_R: Record<NodeKind, number> = { level: 22, gag: 15, item: 16, mechanic: 14, reward: 18, fx: 12 };
 const EDGE_STYLE: Record<EdgeKind, { color: string; width: number; dash: string }> = {
   portal: { color: '#6b9bd6', width: 2.6, dash: '7 4' },
   spawns: { color: '#c79a4a', width: 1.6, dash: '' },
@@ -26,11 +25,11 @@ const EDGE_STYLE: Record<EdgeKind, { color: string; width: number; dash: string 
 };
 const FOG_EDGE = { color: '#33333c', width: 1, dash: '2 5' };
 
-interface SimNode extends GNode { x: number; y: number; vx: number; vy: number; fx?: number; fy?: number; }
+interface SimNode extends GNode { x: number; y: number; vx: number; vy: number; fx?: number; fy?: number; r: number; }
 
 const nodes: SimNode[] = CONTENT_GRAPH.nodes.map((n, i) => {
   const a = (i / CONTENT_GRAPH.nodes.length) * Math.PI * 2;
-  return { ...n, x: Math.cos(a) * 260, y: Math.sin(a) * 260, vx: 0, vy: 0 };
+  return { ...n, x: Math.cos(a) * 320, y: Math.sin(a) * 320, vx: 0, vy: 0, r: 14 };
 });
 const nodeById = new Map(nodes.map((n) => [n.id, n]));
 const edges = CONTENT_GRAPH.edges.filter((e) => nodeById.has(e.from) && nodeById.has(e.to));
@@ -41,27 +40,47 @@ for (const e of edges) {
   adj.set(e.from, [...(adj.get(e.from) ?? []), e]);
   adj.set(e.to, [...(adj.get(e.to) ?? []), e]);
 }
+// Node SIZE = connection count. Busy hub nodes (the axe, the duck room) read as
+// big; leaves stay small. sqrt keeps the most-connected from dwarfing the rest.
+for (const n of nodes) n.r = 9 + Math.sqrt(adj.get(n.id)?.length ?? 0) * 6.5;
+// The White Room is the heart of the whole game — even with no edges, it's the
+// biggest node and pinned dead-centre; everything else orbits it.
+const HUB = nodeById.get('lvl:hub');
+if (HUB) { HUB.r = 38; HUB.x = 0; HUB.y = 0; HUB.fx = 0; HUB.fy = 0; }
 
 let revealAll = false;
 const seen = (id: string) => revealAll || isDiscovered(id);
 
 // ── Force simulation (cooling) ──
 let alpha = 1;
-const REPULSE = 7000, SPRING = 0.02, REST = 96, GRAVITY = 0.013, DAMP = 0.86;
+const REPULSE = 8200, SPRING = 0.02, REST = 52, GRAVITY = 0.011, DAMP = 0.86;
 function step(): void {
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const a = nodes[i], b = nodes[j];
       let dx = b.x - a.x, dy = b.y - a.y;
       const d2 = dx * dx + dy * dy + 0.01, d = Math.sqrt(d2);
-      const f = (REPULSE / d2) * alpha; dx /= d; dy /= d;
+      dx /= d; dy /= d;
+      // Repulsion scales with both nodes' sizes → big nodes keep a wider berth.
+      const f = ((REPULSE * (a.r + b.r)) / 30 / d2) * alpha;
       a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
+      // Hard anti-overlap (not alpha-scaled, so it holds even once settled):
+      // never let two discs touch — leave a gap that grows with their radii. The
+      // White Room gets a much wider moat so it sits alone in clear space.
+      const pad = a.id === 'lvl:hub' || b.id === 'lvl:hub' ? 64 : 14;
+      const minD = a.r + b.r + pad;
+      if (d < minD) {
+        const push = (minD - d) * 0.5;
+        a.vx -= dx * push; a.vy -= dy * push; b.vx += dx * push; b.vy += dy * push;
+      }
     }
   }
   for (const e of edges) {
     const a = nodeById.get(e.from)!, b = nodeById.get(e.to)!;
     let dx = b.x - a.x, dy = b.y - a.y;
-    const d = Math.hypot(dx, dy) + 0.01, f = (d - REST) * SPRING * alpha;
+    const d = Math.hypot(dx, dy) + 0.01;
+    // Edge target length includes both radii, so links off a big node sit longer.
+    const f = (d - (REST + a.r + b.r)) * SPRING * alpha;
     dx /= d; dy /= d;
     a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
   }
@@ -142,7 +161,7 @@ function render(): void {
   }
   for (const { g, circle, q, label, n } of nodeEls) {
     const known = seen(n.id);
-    const r = known ? KIND_R[n.kind] : 13;
+    const r = n.r; // size = connection count (see above), discovered or not
     circle.setAttribute('cx', `${n.x}`); circle.setAttribute('cy', `${n.y}`); circle.setAttribute('r', `${r}`);
     circle.setAttribute('fill', known ? KIND_COLOR[n.kind] : '#24242c');
     circle.setAttribute('stroke', known ? '#101014' : '#3a3a46');
@@ -175,7 +194,12 @@ addEventListener('pointermove', (e) => {
 });
 addEventListener('pointerup', () => {
   panning = false; map.classList.remove('dragging');
-  if (drag) { drag.n.fx = drag.n.fy = undefined; drag = null; }
+  if (drag) {
+    // release the pin — except the hub, which always snaps back to centre.
+    if (drag.n.id === 'lvl:hub') { drag.n.fx = 0; drag.n.fy = 0; }
+    else { drag.n.fx = drag.n.fy = undefined; }
+    drag = null;
+  }
 });
 map.addEventListener('wheel', (e) => {
   e.preventDefault();
