@@ -22,30 +22,34 @@ export interface DoorType {
   build: (width: number, height: number) => DoorHandle;
 }
 
-const FRAME = new THREE.MeshStandardMaterial({ color: 0x2c2e36, roughness: 0.5, metalness: 0.6 });
-const PANEL = new THREE.MeshStandardMaterial({ color: 0x8a5a32, roughness: 0.7, metalness: 0.1 });
-// Multi-part doors keep ALL their parts the same colour as the main panel.
-const PANEL2 = new THREE.MeshStandardMaterial({ color: 0x8a5a32, roughness: 0.7, metalness: 0.1 });
+// Door materials are built FRESH per door (factories, not shared singletons):
+// the corridor disposes doors mid-level (every reshuffle) and on exit, so a
+// shared material would be .dispose()d out from under the doors still standing.
+// All parts of a door share the one colour; multi-part doors look identical.
+const frameMat = () => new THREE.MeshStandardMaterial({ color: 0x2c2e36, roughness: 0.5, metalness: 0.6 });
+const panelMat = () => new THREE.MeshStandardMaterial({ color: 0x8a5a32, roughness: 0.7, metalness: 0.1 });
 const T = 0.18; // panel thickness
 
 function frame(w: number, h: number): THREE.Group {
   const g = new THREE.Group();
+  const fm = frameMat(); // one frame material per door — freed with the door
   const postGeo = new THREE.BoxGeometry(0.3, h + 0.4, 0.5);
   for (const x of [-(w / 2 + 0.15), w / 2 + 0.15]) {
-    const p = new THREE.Mesh(postGeo, FRAME);
+    const p = new THREE.Mesh(postGeo, fm);
     p.position.set(x, (h + 0.4) / 2, 0);
     p.castShadow = true;
     g.add(p);
   }
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(w + 0.9, 0.3, 0.5), FRAME);
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(w + 0.9, 0.3, 0.5), fm);
   lintel.position.set(0, h + 0.25, 0);
   g.add(lintel);
   return g;
 }
 
 // A leaf, slightly oversized so closed panels always overlap their neighbours /
-// the frame — no hairline gaps showing the dark interior.
-function leaf(w: number, h: number, mat = PANEL): THREE.Mesh {
+// the frame — no hairline gaps showing the dark interior. A fresh panel material
+// per leaf (omit `mat`) so it disposes cleanly with its door.
+function leaf(w: number, h: number, mat: THREE.Material = panelMat()): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, h + 0.04, T), mat);
   m.castShadow = true;
   m.receiveShadow = true;
@@ -140,7 +144,7 @@ export const DOOR_TYPES: DoorType[] = [
     build(w, h) {
       const g = frame(w, h);
       const lp = hinged(leaf(w / 2, h), -w / 2, 0, -w / 4, h / 2); // left leaf, outer-edge hinge
-      const rp = hinged(leaf(w / 2, h, PANEL2), w / 2, 0, w / 4, h / 2); // right leaf
+      const rp = hinged(leaf(w / 2, h), w / 2, 0, w / 4, h / 2); // right leaf
       g.add(lp, rp);
       return {
         group: g,
@@ -161,7 +165,7 @@ export const DOOR_TYPES: DoorType[] = [
     build(w, h) {
       const g = frame(w, h);
       const l = leaf(w / 2, h);
-      const r = leaf(w / 2, h, PANEL2);
+      const r = leaf(w / 2, h);
       l.position.set(-w / 4, h / 2, 0);
       r.position.set(w / 4, h / 2, 0);
       g.add(l, r);
@@ -182,7 +186,7 @@ export const DOOR_TYPES: DoorType[] = [
     build(w, h) {
       const g = frame(w, h);
       const top = leaf(w, h / 2);
-      const bot = leaf(w, h / 2, PANEL2);
+      const bot = leaf(w, h / 2);
       top.position.set(0, (h * 3) / 4, 0);
       bot.position.set(0, h / 4, 0);
       g.add(top, bot);
@@ -203,9 +207,9 @@ export const DOOR_TYPES: DoorType[] = [
     build(w, h) {
       const g = frame(w, h);
       const top = leaf(w, h / 2);
-      const bot = leaf(w, h / 2, PANEL2);
+      const bot = leaf(w, h / 2);
       const lef = leaf(w / 2, h);
-      const rig = leaf(w / 2, h, PANEL2);
+      const rig = leaf(w / 2, h);
       top.position.set(0, (h * 3) / 4, 0.04);
       bot.position.set(0, h / 4, 0.04);
       lef.position.set(-w / 4, h / 2, -0.04);
@@ -231,8 +235,8 @@ export const DOOR_TYPES: DoorType[] = [
       const g = frame(w, h);
       const quads = [
         { mesh: leaf(w / 2, h / 2), sx: -1, sy: 1, mat: 0 },
-        { mesh: leaf(w / 2, h / 2, PANEL2), sx: 1, sy: 1, mat: 1 },
-        { mesh: leaf(w / 2, h / 2, PANEL2), sx: -1, sy: -1, mat: 1 },
+        { mesh: leaf(w / 2, h / 2), sx: 1, sy: 1, mat: 1 },
+        { mesh: leaf(w / 2, h / 2), sx: -1, sy: -1, mat: 1 },
         { mesh: leaf(w / 2, h / 2), sx: 1, sy: -1, mat: 0 },
       ];
       for (const q of quads) {
@@ -277,7 +281,7 @@ export const DOOR_TYPES: DoorType[] = [
       const tiles: { mesh: THREE.Mesh; delay: number }[] = [];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-          const m = leaf((w / cols) * 1.02, (h / rows) * 1.02, (r + c) % 2 ? PANEL2 : PANEL);
+          const m = leaf((w / cols) * 1.02, (h / rows) * 1.02);
           m.position.set(-w / 2 + (c + 0.5) * (w / cols), (r + 0.5) * (h / rows), 0);
           g.add(m);
           tiles.push({ mesh: m, delay: (r * cols + c) / (cols * rows) });
@@ -306,7 +310,7 @@ export const DOOR_TYPES: DoorType[] = [
       const sh = h / SLATS;
       const slats: { mesh: THREE.Mesh; y0: number; delay: number }[] = [];
       for (let i = 0; i < SLATS; i++) {
-        const m = leaf(w, sh * 1.04, i % 2 ? PANEL2 : PANEL);
+        const m = leaf(w, sh * 1.04);
         const y0 = (i + 0.5) * sh;
         m.position.set(0, y0, 0);
         g.add(m);
@@ -335,7 +339,7 @@ export const DOOR_TYPES: DoorType[] = [
       const fw = w / FOLDS;
       const strips: THREE.Mesh[] = [];
       for (let i = 0; i < FOLDS; i++) {
-        const m = leaf(fw * 1.06, h, i % 2 ? PANEL2 : PANEL);
+        const m = leaf(fw * 1.06, h);
         m.position.set(-w / 2 + (i + 0.5) * fw, h / 2, 0);
         g.add(m);
         strips.push(m);
@@ -368,7 +372,7 @@ export const DOOR_TYPES: DoorType[] = [
       const sw = w / STRIPS;
       const strips: { mesh: THREE.Mesh; up: boolean; delay: number }[] = [];
       for (let i = 0; i < STRIPS; i++) {
-        const m = leaf(sw * 1.04, h, i % 2 ? PANEL2 : PANEL);
+        const m = leaf(sw * 1.04, h);
         m.position.set(-w / 2 + (i + 0.5) * sw, h / 2, 0);
         g.add(m);
         strips.push({ mesh: m, up: i % 2 === 0, delay: i / STRIPS });
