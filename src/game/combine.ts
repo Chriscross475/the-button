@@ -33,8 +33,15 @@ export interface Carryable {
   heldDrop?: number;
   heldRight?: number;
   /** Stays in its hand across level changes (its object must live on the scene,
-   *  not a level root). E.g. a cooked duck carried from the forest onward. */
+   *  not a level root). E.g. a cooked duck carried from the forest onward.
+   *  Persistent items also stay GRABBABLE in every later level, even after being
+   *  thrown down and left on the ground. */
   persistent?: boolean;
+  /** Makes this a throwable PROJECTILE: releasing it (with no combine/tap) lets
+   *  the engine fly it under gravity + bounce off the floor/walls in ANY level,
+   *  then settle. The physics lives with the object, so a kept ball behaves the
+   *  same everywhere. `speed`/`arc` tune the launch; the rest tune the flight. */
+  projectile?: { radius: number; restitution?: number; gravity?: number; speed?: number; arc?: number };
 }
 
 export interface CombineTarget {
@@ -66,6 +73,9 @@ export interface Carry {
   removeTarget(t: CombineTarget): void;
   /** The item in either hand (right preferred), or null. */
   held(): Carryable | null;
+  /** Fly `object` as a projectile the engine drives across levels (gravity +
+   *  floor/wall bounce, then it settles). Used for thrown keepsakes. */
+  launch(object: THREE.Object3D, velocity: THREE.Vector3, opts?: { radius?: number; restitution?: number; gravity?: number }): void;
   /** Drive the hands each frame (called by the Game). `active` = in play. */
   tick(dt: number, active: boolean): void;
   /** Drop everything registered for the level being left, keeping the hands/arms
@@ -99,6 +109,23 @@ export function createCarry(ctx: GameContext): Carry {
   const carryables: Carryable[] = [];
   const targets: CombineTarget[] = [];
   let playing = false; // true while in play (set each tick by the Game)
+
+  // Loose projectiles — thrown items the engine flies until they settle. This
+  // list (and the carry instance) outlives level changes, so a kept ball keeps
+  // its physics in every level instead of freezing where a dead level's updater
+  // left it. Behaviour lives with the object: each carries its own flight tuning.
+  interface Loose {
+    object: THREE.Object3D;
+    vel: THREE.Vector3;
+    radius: number;
+    rest: number;
+    gravity: number;
+  }
+  const loose: Loose[] = [];
+  const dropLoose = (object: THREE.Object3D) => {
+    const i = loose.findIndex((l) => l.object === object);
+    if (i >= 0) loose.splice(i, 1);
+  };
 
   const canvas = document.getElementById('scene') as HTMLCanvasElement | null;
   const forward = new THREE.Vector3();
@@ -147,6 +174,37 @@ export function createCarry(ctx: GameContext): Carry {
     }
   };
 
+  // Advance every loose projectile one frame: gravity, then bounce off the
+  // active level's floor (bounds.floorY) and side walls (bounds), then settle.
+  // Uses ctx.bounds (a live getter), so it adapts to whatever level you're in.
+  const stepLoose = (dt: number) => {
+    if (!loose.length) return;
+    const b = ctx.bounds;
+    const floorY = (b.floorY ?? 0);
+    for (let i = loose.length - 1; i >= 0; i--) {
+      const l = loose[i];
+      if (hands.left.item?.object === l.object || hands.right.item?.object === l.object) {
+        loose.splice(i, 1); // grabbed back mid-flight — the hand takes over
+        continue;
+      }
+      l.vel.y -= l.gravity * dt;
+      const p = l.object.position;
+      p.addScaledVector(l.vel, dt);
+      if (p.x > b.maxX - l.radius) { p.x = b.maxX - l.radius; l.vel.x = -l.vel.x * l.rest; }
+      else if (p.x < b.minX + l.radius) { p.x = b.minX + l.radius; l.vel.x = -l.vel.x * l.rest; }
+      if (p.z > b.maxZ - l.radius) { p.z = b.maxZ - l.radius; l.vel.z = -l.vel.z * l.rest; }
+      else if (p.z < b.minZ + l.radius) { p.z = b.minZ + l.radius; l.vel.z = -l.vel.z * l.rest; }
+      const rest = floorY + l.radius;
+      if (p.y < rest) { p.y = rest; l.vel.y = -l.vel.y * l.rest; l.vel.x *= 0.82; l.vel.z *= 0.82; }
+      l.object.rotation.x += l.vel.z * dt * 0.4;
+      l.object.rotation.z -= l.vel.x * dt * 0.4;
+      if (p.y <= rest + 0.001 && Math.abs(l.vel.y) < 0.7 && Math.hypot(l.vel.x, l.vel.z) < 0.4) {
+        l.vel.set(0, 0, 0);
+        loose.splice(i, 1); // at rest; it stays put + grabbable (still in the registry)
+      }
+    }
+  };
+
   const carry: Carry = {
     addCarryable: (c) => carryables.push(c),
     removeCarryable: (c) => {
@@ -165,6 +223,16 @@ export function createCarry(ctx: GameContext): Carry {
       if (i >= 0) targets.splice(i, 1);
     },
     held: () => hands.right.item ?? hands.left.item,
+    launch: (object, velocity, opts) => {
+      dropLoose(object);
+      loose.push({
+        object,
+        vel: velocity.clone(),
+        radius: opts?.radius ?? 0.2,
+        rest: opts?.restitution ?? 0.5,
+        gravity: opts?.gravity ?? 16,
+      });
+    },
     tick: (dt, active) => {
       playing = active;
       // Both arms are ALWAYS shown while in play (empty hands included), not just
@@ -174,6 +242,7 @@ export function createCarry(ctx: GameContext): Carry {
       if (!active) return;
       pinHand('left', dt);
       pinHand('right', dt);
+      stepLoose(dt);
     },
     clearLevel: () => {
       // Whatever's IN your hands carries to the next level (re-parented to the
@@ -186,7 +255,16 @@ export function createCarry(ctx: GameContext): Carry {
         h.arm.visible = false;
         label(side);
       }
+      // PERSISTENT carryables (kept items, e.g. the basketball) stay registered
+      // AND keep their objects alive on the scene, so they remain grabbable —
+      // and a loose one mid-flight keeps flying — in every later level. Anything
+      // else (a level's ground props) is dropped with the old level.
+      const kept = carryables.filter((c) => c.persistent);
+      const keptObjs = new Set(kept.map((c) => c.object));
+      for (const c of kept) ctx.scene.add(c.object);
+      for (let i = loose.length - 1; i >= 0; i--) if (!keptObjs.has(loose[i].object)) loose.splice(i, 1);
       carryables.length = 0;
+      carryables.push(...kept);
       targets.length = 0;
     },
     putInHand: (side, c) => {
@@ -195,6 +273,7 @@ export function createCarry(ctx: GameContext): Carry {
       label(side);
     },
     dropAll: () => {
+      loose.length = 0; // any in-flight projectile stops existing too
       for (const side of ['left', 'right'] as Side[]) {
         const h = hands[side];
         if (h.item) {
@@ -257,6 +336,7 @@ export function createCarry(ctx: GameContext): Carry {
     }
     if (!target) return;
     h.item = target;
+    dropLoose(target.object); // if it was still flying, the hand takes over
     target.onGrab?.();
     label(side);
   };
@@ -324,8 +404,20 @@ export function createCarry(ctx: GameContext): Carry {
       item.onTap(); // stays in hand (e.g. swing)
       return;
     }
+    const charge = Math.min(1, elapsed / 1000);
     if (item.onThrow) {
-      item.onThrow(Math.min(1, elapsed / 1000));
+      item.onThrow(charge);
+      releaseHand(side);
+      return;
+    }
+    // No bespoke throw, but it's a declared projectile → the engine flies it
+    // (same physics in any level). Velocity = look direction × charge, + arc.
+    if (item.projectile) {
+      const pj = item.projectile;
+      ctx.camera.getWorldDirection(forward);
+      const v = forward.clone().multiplyScalar((pj.speed ?? 11) * (0.7 + 0.6 * charge));
+      v.y += pj.arc ?? 1.6;
+      carry.launch(item.object, v, { radius: pj.radius, restitution: pj.restitution, gravity: pj.gravity });
       releaseHand(side);
     }
   }

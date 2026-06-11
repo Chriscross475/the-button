@@ -219,9 +219,11 @@ function makeCampfire(): THREE.Group {
     g.add(f);
     flames.push(f);
   }
-  const light = new THREE.PointLight(0xff7a1a, 1.4, 7, 2);
-  light.position.y = 0.6;
-  g.add(light);
+  // NB: deliberately NO per-campfire PointLight. Adding a dynamic light changes
+  // the scene's light count, which makes the renderer recompile EVERY lit
+  // material's shader — a ~1s hitch each time a fire is lit, brutal on mobile.
+  // The flames are self-lit (MeshBasicMaterial), so the fire still reads bright;
+  // we just flicker their scale. The forest's ambient/hemi light does the rest.
   thud();
   pop();
   let t = Math.random() * 10;
@@ -229,7 +231,6 @@ function makeCampfire(): THREE.Group {
     if (!g.parent) return true; // removed → stop animating
     t += dt * 12;
     for (let i = 0; i < flames.length; i++) flames[i].scale.set(1, 0.85 + 0.25 * Math.sin(t + i * 1.7), 1);
-    light.intensity = 1.2 + 0.4 * Math.sin(t * 0.9);
     return false;
   });
   return g;

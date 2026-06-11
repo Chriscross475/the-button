@@ -164,6 +164,7 @@ export class Game {
       consumeHeld: (kind) => this.carry.consume(kind),
       heldKind: (side) => this.carry.inHand(side),
       putInHand: (side, c) => this.carry.putInHand(side, c),
+      launchProjectile: (object, velocity, opts) => this.carry.launch(object, velocity, opts),
       setCompanion: (mesh, baseY = 0) => {
         if (this.companion) this.scene.remove(this.companion);
         this.scene.add(mesh); // on the scene → survives level transitions

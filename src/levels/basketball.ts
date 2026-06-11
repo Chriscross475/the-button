@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { GameContext } from '../game/types';
 import type { Carryable } from '../game/combine';
 import { CONFIG } from '../config';
-import { addUpdater } from '../experiences/scheduler';
+import { addUpdater, currentGeneration } from '../experiences/scheduler';
 import { spawnPedestalButton } from '../button/pedestal-button';
 import { setCounter, hideCounter } from '../ui/counter';
 import { whoosh, pop, sparkle } from '../audio/sfx';
@@ -24,6 +24,7 @@ const GRAV = 16;
 
 export function revealBasketball(ctx: GameContext): void {
   const root = ctx.levelRoot;
+  const bornGen = currentGeneration(); // identifies "still in the hoops room"
   const { width: w, depth: d, height: h } = CONFIG.ROOM;
   ctx.openRoom({ walls: false, ceiling: false }); // keep the enclosed room; sink the button
 
@@ -98,6 +99,10 @@ export function revealBasketball(ctx: GameContext): void {
     heldDist: 0.9,
     heldRight: 0.3,
     heldDrop: 0.45,
+    // You keep the ball — so its throw physics live on the ball, not this level:
+    // it stays grabbable and flies the same (gravity + bounce) in every level.
+    persistent: true,
+    projectile: { radius: BALL_R, restitution: 0.55, gravity: GRAV },
     onGrab: () => {
       mode = 'held';
       started = true; // the clock starts when you first pick the ball up
@@ -105,12 +110,21 @@ export function revealBasketball(ctx: GameContext): void {
     onThrow: (charge) => {
       started = true;
       whoosh();
-      throwPos.copy(ctx.playerPos());
       ctx.camera.getWorldDirection(fwd);
-      vel.copy(fwd).multiplyScalar(9 + charge * 7);
-      vel.y += 1.6; // a bit of arc
-      mode = 'flying';
-      scored = false;
+      const v = fwd.clone().multiplyScalar(9 + charge * 7);
+      v.y += 1.6; // a bit of arc
+      if (currentGeneration() === bornGen) {
+        // Still in the hoops room: the level's own physics (scoring + the room
+        // walls + ceiling) handles the shot.
+        throwPos.copy(ctx.playerPos());
+        vel.copy(v);
+        mode = 'flying';
+        scored = false;
+      } else {
+        // Carried into another level: the ball's OWN projectile physics fly it —
+        // gravity + bounce, settling on the ground — exactly as anywhere else.
+        ctx.launchProjectile(ball, v, { radius: BALL_R, restitution: 0.55, gravity: GRAV });
+      }
     },
   };
   ctx.addCarryable(carry);
