@@ -5,6 +5,7 @@ import { createAsset } from '../assets';
 import { spawnFeathers } from '../assets/effects';
 import { addUpdater } from '../experiences/scheduler';
 import { quack, thud, pop } from '../audio/sfx';
+import { vo } from '../audio/vo-shared';
 
 // THE duck — ONE self-contained object, identical in every level. It wanders,
 // you grab it, throw it (engine projectile physics: bounces off walls + the
@@ -18,6 +19,14 @@ const HARD_IMPACT = 9; // land harder than this from the air → it splats
 const THROW_SPEED = 8;
 const THROW_UP = 3;
 const GRAVITY = 11;
+
+// The narrator's take on a duck that came down too hard — a duck property, so it
+// plays wherever a duck splats (these are the same lines the duck room bakes).
+const SPLAT_LINES = vo([
+  'Too high. Gravity finishes what you started.',
+  'It went up. It came down. It did not get up.',
+  'A long way up, a short way to the floor.',
+]);
 
 export interface Duck {
   object: THREE.Group;
@@ -135,7 +144,12 @@ export function spawnDuck(ctx: GameContext, x: number, z: number, opts: DuckOpts
         gravity: GRAVITY,
         onLand: (impact) => {
           if (opts.onLand && opts.onLand(duck, impact)) return true; // level-specific outcome
-          if (impact > HARD_IMPACT) { die(); return true; } // a long way up, a short way down
+          if (impact > HARD_IMPACT) {
+            // came down too hard → the narrator's eulogy, then feathers
+            ctx.narrate(SPLAT_LINES[Math.floor(Math.random() * SPLAT_LINES.length)], 4500, { priority: true });
+            die();
+            return true;
+          }
           return false;
         },
         onSettle: () => {
