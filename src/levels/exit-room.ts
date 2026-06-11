@@ -51,7 +51,9 @@ export function buildExitRoom(ctx: GameContext, opts: ExitRoomOpts): RoomBounds 
   rg.position.set(0, cy, 0);
   root.add(rg);
 
-  const floorMat = new THREE.MeshStandardMaterial({ color: FLOOR, roughness: 0.95 });
+  // DoubleSide: an elevated cabin (e.g. the tunnel) is seen from BELOW too, and a
+  // single-sided floor would be invisible/see-through from underneath.
+  const floorMat = new THREE.MeshStandardMaterial({ color: FLOOR, roughness: 0.95, side: THREE.DoubleSide });
   const wallMat = new THREE.MeshStandardMaterial({ color: WALL, roughness: 0.9 });
   const ceilMat = new THREE.MeshStandardMaterial({ color: CEIL, roughness: 1 });
 
@@ -222,10 +224,14 @@ export function buildExitRoom(ctx: GameContext, opts: ExitRoomOpts): RoomBounds 
   sun.target.position.set(cx, 0, cz);
   rg.add(sun, sun.target);
 
-  // The button — press it to advance to the next room.
+  // The button — press it to advance. Parented to the level root at the room's
+  // TRUE world height (cx, cy, cz), not to the raised group at local y=0, so its
+  // interactable sits at the floor's real elevation. That lets the press range
+  // gate on height — otherwise an elevated cabin's button is pressable from the
+  // ground directly below it (XZ match, Y ignored).
   const button = spawnPedestalButton(
-    rg,
-    new THREE.Vector3(cx, 0, cz),
+    root,
+    new THREE.Vector3(cx, cy, cz),
     () => ctx.advance(new THREE.Vector3(cx, 0, cz)), // becomes the next start room, in place
     { glow: false }, // matte — no shine on the end button
   );

@@ -166,14 +166,18 @@ export function revealTunnel(ctx: GameContext): void {
     stormLight.intensity = 0.25 + flash * 2.2;
     if (cooldown > 0) cooldown -= dt;
 
-    const onTrack = TRACK_X.find((tx) => Math.abs(player.x - tx) < 1.0);
-    const inT1 = onTrack !== undefined && player.z < WALL_T1 + 1 && player.z > WALL_T1 - 8;
-    const inT2 = onTrack !== undefined && player.z > WALL_T2 - 1 && player.z < WALL_T2 + 8;
+    // Anywhere across the bore is fair game — not just dead-on a rail — so you
+    // can't slip down the MIDDLE between the tracks untouched. The train spawns on
+    // the nearest rail; its hit (±1.6 in x) still catches a centred player.
+    const inBore = Math.abs(player.x) < 2.4;
+    const nearTrack = TRACK_X.reduce((a, b) => (Math.abs(player.x - a) <= Math.abs(player.x - b) ? a : b));
+    const inT1 = inBore && player.z < WALL_T1 + 1 && player.z > WALL_T1 - 8;
+    const inT2 = inBore && player.z > WALL_T2 - 1 && player.z < WALL_T2 + 8;
     // Trains only run if the slingshot (the global source) is powered + aimed here.
     if ((inT1 || inT2) && armed && !trainsStopped && feedsTunnel() && !ctx.isDead() && cooldown <= 0) {
       armed = false;
-      if (inT1) spawnTrain(onTrack!, WALL_T1, 1, LAUNCH_T1); // tunnel 1: knockback → ground
-      else spawnTrain(onTrack!, WALL_T2, -1, LAUNCH_T2); // tunnel 2: arc toward the cabin
+      if (inT1) spawnTrain(nearTrack, WALL_T1, 1, LAUNCH_T1); // tunnel 1: knockback → ground
+      else spawnTrain(nearTrack, WALL_T2, -1, LAUNCH_T2); // tunnel 2: arc toward the cabin
     }
     if (!inT1 && !inT2 && cooldown <= 0) armed = true;
 

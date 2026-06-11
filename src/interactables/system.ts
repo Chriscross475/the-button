@@ -75,6 +75,7 @@ export function tickInteractables(
     const dz = it.position.z - playerPos.z;
     const d = Math.hypot(dx, dz);
     if (d > it.radius) continue;
+    if (Math.abs(it.position.y - playerPos.y) > 3.5) continue; // must be at roughly its height (no pressing an elevated button from the ground below)
     if (useCone && d > 0.01) {
       const dot = (fx * dx + fz * dz) / d;
       if (dot < dotMin) continue;
