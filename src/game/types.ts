@@ -44,11 +44,16 @@ export interface RoomOpenOpts {
 // repoints `bounds` whenever the active level changes.
 
 export interface GameContext {
+  // ── World & frame ──
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   /** Root group of the ACTIVE level — parent things here so they dispose with
    *  the level on exit. Repointed by the Game on every level change. */
   levelRoot: THREE.Object3D;
+  /** Live player position (do not mutate). */
+  playerPos: () => THREE.Vector3;
+
+  // ── Narration & timing ──
   /** Narrator line (shown + spoken). `priority` clears the queue + interrupts
    *  the current line so a timing-critical reaction plays immediately.
    *  `interruptible` marks a low-priority line the next one replaces at once. */
@@ -57,17 +62,8 @@ export interface GameContext {
    *  change — use this instead of window.setTimeout for anything that touches
    *  the world, or the callback fires into the NEXT level. */
   after: (ms: number, fn: () => void) => void;
-  /** Live player position (do not mutate). */
-  playerPos: () => THREE.Vector3;
-  /** Active level's collision bounds (live — reflects setBounds/setRegions). */
-  readonly bounds: RoomBounds;
-  /** Add a circular collision obstacle to the ACTIVE level. */
-  addObstacle: (o: Obstacle) => void;
-  /** Remove a previously-added obstacle (e.g. when the button sinks away). */
-  removeObstacle: (o: Obstacle) => void;
-  /** Spawn another button in the active level; uses the level's default press
-   *  handler (in the hub: run a random experience). */
-  spawnButton: (pos: THREE.Vector3) => void;
+
+  // ── Transitions & portals (move between levels) ──
   /** Transition to a registered level by id (fade out/in). */
   goToLevel: (id: string) => void;
   /** Shortcut for goToLevel('hub'). */
@@ -89,10 +85,8 @@ export interface GameContext {
    *  default advance placement. Call from a level's reveal when `ctx.entry`
    *  matches one of its tunnels/cracks. */
   spawnAt: (ground: THREE.Vector3, yaw: number) => void;
-  /** Launch the player ballistically — the train. Velocity in m/s. */
-  launchPlayer: (vel: THREE.Vector3) => void;
-  /** Kill the player: spectator death, then restart in the hub. */
-  die: (cause?: string) => void;
+
+  // ── The room shell + its button ──
   /** Open the current room in place — topple its walls, float the ceiling —
    *  revealing the environment around it. `walls` can be `true` (all),
    *  `false` (none), or a list of sides to drop (e.g. ['back'] for just the
@@ -104,9 +98,44 @@ export interface GameContext {
   /** Sink + disable the room's recurring pedestal button (e.g. a level removes it
    *  entirely instead of repurposing it). No-op if the level has no room button. */
   sinkRoomButton: () => void;
-  /** The GLOBAL dual-hand carry system. Register a level's grabbable items /
-   *  combine targets here; the Game drives grab / hold / throw / combine and
-   *  clears the registry on every level change. */
+  /** Spawn another button in the active level; uses the level's default press
+   *  handler (in the hub: run a random experience). */
+  spawnButton: (pos: THREE.Vector3) => void;
+
+  // ── Movement region & collision ──
+  /** Active level's collision bounds (live — reflects setBounds/setRegions). */
+  readonly bounds: RoomBounds;
+  /** Replace the active movement region with a single rectangle. */
+  setBounds: (b: RoomBounds) => void;
+  /** Replace the active movement regions with a union of rectangles (e.g. a
+   *  wide room joined to a narrower corridor). Regions should overlap at seams. */
+  setRegions: (regions: RoomBounds[]) => void;
+  /** Add a circular collision obstacle to the ACTIVE level. */
+  addObstacle: (o: Obstacle) => void;
+  /** Remove a previously-added obstacle (e.g. when the button sinks away). */
+  removeObstacle: (o: Obstacle) => void;
+  /** Install flight landing handlers used after a launch (pad vs. void). */
+  setLanding: (
+    onLand: (pos: THREE.Vector3) => void,
+    isOverSolid: (x: number, z: number) => boolean,
+  ) => void;
+  /** Boxes that kill the player mid-flight on contact (e.g. a wall you slam into
+   *  when launched from too close). Leaves the chalk outline ON the wall. */
+  setFlightWalls: (walls: FlightWall[]) => void;
+
+  // ── Player physics & death ──
+  /** Launch the player ballistically — the train. Velocity in m/s. */
+  launchPlayer: (vel: THREE.Vector3) => void;
+  /** Kill the player: spectator death, then restart in the hub. */
+  die: (cause?: string) => void;
+  /** True while the player is mid-flight (post-launch). */
+  isAirborne: () => boolean;
+  /** True while dead (awaiting restart). */
+  isDead: () => boolean;
+
+  // ── Carry & combine (the GLOBAL dual-hand carry) ──
+  /** Register a level's grabbable items / combine targets; the Game drives grab /
+   *  hold / throw / combine and clears the registry on every level change. */
   addCarryable: (c: Carryable) => void;
   removeCarryable: (c: Carryable) => void;
   addTarget: (t: CombineTarget) => void;
@@ -123,6 +152,8 @@ export interface GameContext {
    *  floor/wall bounce, then it settles). Lets a kept item's throw physics live
    *  with the object instead of a level's updater. */
   launchProjectile: (object: THREE.Object3D, velocity: THREE.Vector3, opts?: { radius?: number; restitution?: number; gravity?: number; onLand?: (impactSpeed: number) => boolean; onSettle?: () => void }) => void;
+
+  // ── Companions & followers ──
   /** A pet/object that follows the player AND survives level transitions (the
    *  baby wolf; the kept basket). Parented to the scene; the Game drives the
    *  follow + faces it at the player. `baseY` floats it at a height (e.g. a
@@ -132,29 +163,13 @@ export interface GameContext {
    *  balls/ducks dropping through it score a point, shown on a label above the
    *  basket. Resets the score to 0. Pass null to stop scoring. */
   setScoringHoop: (rim: THREE.Object3D | null, radius?: number) => void;
-  /** The unicycle: hands-free movement that's faster but slides (inertia).
-   *  Reset on every level change. */
+
+  // ── Movement modes ──
+  /** The unicycle: hands-free movement that's faster but slides (inertia). */
   setWheel: (on: boolean) => void;
   /** Take over camera + input (e.g. operating the slingshot turret). Pass null
    *  to hand control back to normal walking. */
   setControlMode: (cm: ControlMode | null) => void;
-  /** Replace the active movement region with a single rectangle. */
-  setBounds: (b: RoomBounds) => void;
-  /** Replace the active movement regions with a union of rectangles (e.g. a
-   *  wide room joined to a narrower corridor). Regions should overlap at seams. */
-  setRegions: (regions: RoomBounds[]) => void;
-  /** Install flight landing handlers used after a launch (pad vs. void). */
-  setLanding: (
-    onLand: (pos: THREE.Vector3) => void,
-    isOverSolid: (x: number, z: number) => boolean,
-  ) => void;
-  /** Boxes that kill the player mid-flight on contact (e.g. a wall you slam into
-   *  when launched from too close). Leaves the chalk outline ON the wall. */
-  setFlightWalls: (walls: FlightWall[]) => void;
-  /** True while the player is mid-flight (post-launch). */
-  isAirborne: () => boolean;
-  /** True while dead (awaiting restart). */
-  isDead: () => boolean;
 }
 
 export interface LevelInstance {
