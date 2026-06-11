@@ -15,7 +15,7 @@ import { setHandItem } from '../ui/hands';
 
 const TAP_MS = 250;
 const AIM_DIST = 1.6; // how far ahead the "click on" probe point sits
-const GRAB_DIST = 2.6; // max reach to grab something you're looking at
+const GRAB_DIST = 3.2; // max reach to grab something you're looking at
 
 export interface Carryable {
   kind: string;
@@ -368,14 +368,18 @@ export function createCarry(
       if (o) target = grabbable[objs.indexOf(o)];
     }
     if (!target) {
-      // Fallback only for a near miss: must be CLOSE and (nearly) looked at.
+      // Fallback: grab whatever's roughly in front, in FULL 3D (so a ball/duck
+      // up in the air — where you're looking UP — is easy to snatch) with a
+      // forgiving reach + cone.
       const cam = ctx.camera.position;
-      let best = 2.2;
+      let best = 3.0;
       for (const c of grabbable) {
         const dx = c.object.position.x - cam.x;
+        const dy = c.object.position.y - cam.y;
         const dz = c.object.position.z - cam.z;
-        const dist = Math.hypot(dx, dz);
-        if (dist <= best && (dx * forward.x + dz * forward.z) / (dist || 1) > 0.9) {
+        const dist = Math.hypot(dx, dy, dz);
+        const facing = dist > 1e-3 ? (dx * forward.x + dy * forward.y + dz * forward.z) / dist : 1;
+        if (dist <= best && facing > 0.6) {
           best = dist;
           target = c;
         }

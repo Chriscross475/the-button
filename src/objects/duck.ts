@@ -60,7 +60,16 @@ defineCombine('duck', 'campfire', (held, _t, env) => {
   thud();
   const cooked = createAsset('cooked-duck');
   env.ctx.scene.add(cooked);
-  env.carry.putInHand(env.side, { kind: 'cooked-duck', object: cooked, persistent: true, heldDist: 0.7, heldDrop: 0.3 });
+  env.carry.putInHand(env.side, {
+    kind: 'cooked-duck',
+    object: cooked,
+    persistent: true,
+    heldDist: 0.7,
+    heldDrop: 0.3,
+    // Throwable like anything else, so it can leave the hand (a tap-combine onto a
+    // stand still works; a plain release tosses it).
+    projectile: { radius: 0.22, restitution: 0.4, gravity: 14 },
+  });
   env.ctx.narrate('A whole roast duck, on a skewer, made by your own hand. Keep it. You will want it later.', 5500, {
     priority: true,
   });

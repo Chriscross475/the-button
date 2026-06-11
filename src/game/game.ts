@@ -311,7 +311,8 @@ export class Game {
     clearInteractables();
     clearUpdaters();
     this.controlMode = null; // never carry an operating mode across levels
-    this.setWheelMode(false); // the unicycle is per-level (also clears its visual)
+    // The unicycle/wheel is a KEPT reward — it persists across levels now (no
+    // clear here); updateWheelVisual keeps it under the player wherever they go.
     this.carry.clearLevel(); // drop the leaving level's carryables; persistent items carry over
     if (old) disposeTree(old.root); // AFTER clearLevel — held items are re-parented out first
     this.mode = 'play';
@@ -369,14 +370,25 @@ export class Game {
     const ref = buttonPos ?? cam;
     const offX = buttonPos ? cam.x - ref.x : 0;
     const offZ = buttonPos ? cam.z - ref.z : 4;
+    const oldX = cam.x; // player's world pos BEFORE the transition
+    const oldZ = cam.z;
     const yaw = getYaw();
     const pitch = getPitch();
     this.loadLevel('hub');
     exp?.run(this.ctx);
     // Place the player at the same offset from the new (hub) button at (0,0,-2).
-    this.camera.position.set(0 + offX, CONFIG.PLAYER_HEIGHT, -2 + offZ);
+    const newX = 0 + offX;
+    const newZ = -2 + offZ;
+    this.camera.position.set(newX, CONFIG.PLAYER_HEIGHT, newZ);
     setYaw(yaw);
     setPitch(pitch);
+    // A companion (the baby wolf, the basket) is a scene object — shift it by the
+    // same world delta the player just moved, so it stays right beside you in the
+    // new level instead of being stranded where the old level was.
+    if (this.companion) {
+      this.companion.position.x += newX - oldX;
+      this.companion.position.z += newZ - oldZ;
+    }
   }
 
   private spawnButton(pos: THREE.Vector3): void {

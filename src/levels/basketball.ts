@@ -175,6 +175,21 @@ export function revealBasketball(ctx: GameContext): void {
     if (p.z > WZ) { p.z = WZ; vel.z = -vel.z * 0.7; } else if (p.z < -WZ) { p.z = -WZ; vel.z = -vel.z * 0.7; }
     if (p.y > WY) { p.y = WY; vel.y = -vel.y * 0.6; }
     if (p.y < BALL_R) { p.y = BALL_R; vel.y = -vel.y * 0.55; vel.x *= 0.82; vel.z *= 0.82; }
+    // Backboard: the ball bounces off it instead of ghosting through — and a hit
+    // on the red square (with padding) banks in for a score. (Board face world Z
+    // is RIM_Z-0.57; the red square is centred at y = RIM_Y+0.45.)
+    const BOARD_Z = RIM_Z - 0.57;
+    if (vel.z < 0 && p.z - BALL_R <= BOARD_Z && p.z - BALL_R > BOARD_Z - 0.7 &&
+        Math.abs(p.x) < 1.0 && Math.abs(p.y - (RIM_Y + 0.6)) < 0.65) {
+      if (mode === 'flying' && !ended && !scored &&
+          Math.abs(p.x) < 0.4 + 0.25 && Math.abs(p.y - (RIM_Y + 0.45)) < 0.3 + 0.25) {
+        scored = true;
+        const far = Math.hypot(throwPos.x, throwPos.z - RIM_Z) > FAR_DIST;
+        score(far ? 3 : 2); // banked off the red square
+      }
+      p.z = BOARD_Z + BALL_R;
+      vel.z = Math.abs(vel.z) * 0.5; // come back off the board, toward the player
+    }
     ball.rotation.x += vel.z * dt * 0.4;
     ball.rotation.z -= vel.x * dt * 0.4;
 
@@ -266,8 +281,13 @@ export function revealBasketball(ctx: GameContext): void {
     } else {
       ctx.narrate('Modest. You keep the ball, at least. A consolation.', 6500, { priority: true });
     }
-    // A new button to move on.
-    const btn = spawnPedestalButton(root, new THREE.Vector3(4, 0, 3), () => ctx.advance(new THREE.Vector3(4, 0, 3)));
+    // A new button to move on. Pressing it takes your ball WITH you — if it's not
+    // already in hand (it's usually sat on the floor after the round), it leaps to
+    // your hand so the kept ball actually comes along to the next level.
+    const btn = spawnPedestalButton(root, new THREE.Vector3(4, 0, 3), () => {
+      if (!ctx.isHolding('basketball')) ctx.putInHand('right', carry);
+      ctx.advance(new THREE.Vector3(4, 0, 3));
+    });
     ctx.addObstacle(btn.obstacle);
   }
 }
