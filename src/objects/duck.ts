@@ -65,52 +65,59 @@ export function spawnDuck(ctx: GameContext, x: number, z: number, opts: DuckOpts
   ctx.levelRoot.add(object);
   const duck: Duck = { object, held: false, flying: false, alive: true };
 
-  // Wander: a lazy amble that turns at random and stays near where it spawned.
+  // Wander/throw state — shared by the wander loop AND the throw's settle.
   let heading = Math.random() * 6;
   let waddle = Math.random() * 6;
   let bx = x;
   let bz = z;
-  addUpdater(() => {
-    if (!object.parent || !duck.alive) return true;
-    if (duck.held || duck.flying) return false;
-    const dt = 1 / 60;
-    if (Math.random() < 0.4 * dt) heading = Math.random() * Math.PI * 2;
-    let dy = heading - object.rotation.y;
-    while (dy > Math.PI) dy -= Math.PI * 2;
-    while (dy < -Math.PI) dy += Math.PI * 2;
-    object.rotation.y += dy * Math.min(1, dt * 3);
-    const fx = Math.cos(object.rotation.y);
-    const fz = -Math.sin(object.rotation.y);
-    let nx = object.position.x + fx * 0.6 * dt;
-    let nz = object.position.z + fz * 0.6 * dt;
-    if (Math.abs(nx - bx) > 7) { heading = Math.PI - heading; nx = object.position.x; }
-    if (Math.abs(nz - bz) > 7) { heading = -heading; nz = object.position.z; }
-    object.position.x = nx;
-    object.position.z = nz;
-    waddle += dt * 7;
-    object.rotation.z = Math.sin(waddle) * 0.22;
-    object.position.y = DUCK_R + Math.abs(Math.cos(waddle)) * 0.03;
-    return false;
-  });
+  let target: CombineTarget | null = null;
 
-  // Axe target (live position) + its feather-burst removal.
-  const target: CombineTarget = { kind: 'duck', position: object.position, radius: 1.1 };
-  ctx.addTarget(target);
   const die = () => {
     if (!duck.alive) return;
     duck.alive = false;
     spawnFeathers(ctx.levelRoot, object.position.clone());
     ctx.removeCarryable(carry);
-    ctx.removeTarget(target);
-    chop.delete(target);
+    if (target) { ctx.removeTarget(target); chop.delete(target); }
     object.parent?.remove(object);
   };
-  chop.set(target, die);
+
+  // The duck's PER-LEVEL hooks: a wander loop + an axe-target. Installed at spawn
+  // and RE-installed whenever the duck is carried into a fresh level (its old
+  // hooks were cleared on the transition) — so a carried duck keeps wandering and
+  // stays axe-able wherever it ends up. This is what "keeps all properties" means.
+  const installHooks = () => {
+    addUpdater(() => {
+      if (!object.parent || !duck.alive) return true;
+      if (duck.held || duck.flying) return false;
+      const dt = 1 / 60;
+      if (Math.random() < 0.4 * dt) heading = Math.random() * Math.PI * 2;
+      let dy = heading - object.rotation.y;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      object.rotation.y += dy * Math.min(1, dt * 3);
+      const fx = Math.cos(object.rotation.y);
+      const fz = -Math.sin(object.rotation.y);
+      let nx = object.position.x + fx * 0.6 * dt;
+      let nz = object.position.z + fz * 0.6 * dt;
+      if (Math.abs(nx - bx) > 7) { heading = Math.PI - heading; nx = object.position.x; }
+      if (Math.abs(nz - bz) > 7) { heading = -heading; nz = object.position.z; }
+      object.position.x = nx;
+      object.position.z = nz;
+      waddle += dt * 7;
+      object.rotation.z = Math.sin(waddle) * 0.22;
+      object.position.y = DUCK_R + Math.abs(Math.cos(waddle)) * 0.03;
+      return false;
+    });
+    target = { kind: 'duck', position: object.position, radius: 1.1 };
+    ctx.addTarget(target);
+    chop.set(target, die);
+  };
 
   const carry: Carryable = {
     kind: 'duck',
     object,
     persistent: true, // carried in hand, it comes to the next level with everything
+    onEnterLevel: installHooks, // re-establish wander + axe-target in the new level
     heldDist: 0.9,
     onGrab: () => { duck.held = true; quack(); },
     onRelease: () => { duck.held = false; },
@@ -142,6 +149,7 @@ export function spawnDuck(ctx: GameContext, x: number, z: number, opts: DuckOpts
     },
   };
   ctx.addCarryable(carry);
+  installHooks(); // wander + axe-target for the level it's spawned in
 
   return duck;
 }

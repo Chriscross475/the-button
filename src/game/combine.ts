@@ -42,6 +42,10 @@ export interface Carryable {
    *  then settle. The physics lives with the object, so a kept ball behaves the
    *  same everywhere. `speed`/`arc` tune the launch; the rest tune the flight. */
   projectile?: { radius: number; restitution?: number; gravity?: number; speed?: number; arc?: number };
+  /** Re-establish this object's PER-LEVEL hooks (wander loop, combine targets)
+   *  after it's CARRIED into a fresh level — the engine calls this once the new
+   *  level is built, so a carried object arrives fully alive, not as a dead prop. */
+  onEnterLevel?: () => void;
 }
 
 export interface CombineTarget {
@@ -83,6 +87,9 @@ export interface Carry {
   clearLevel(): void;
   /** Put an item directly into a hand (e.g. a recipe result). */
   putInHand(side: 'left' | 'right', c: Carryable): void;
+  /** After a new level is built, re-install per-level hooks for items the player
+   *  CARRIED in (their wander/targets were cleared on the transition). */
+  enterLevel(): void;
   /** Drop EVERYTHING, including persistent items (used on death). */
   dropAll(): void;
   /** The kind held in a hand, or null. */
@@ -305,6 +312,12 @@ export function createCarry(
       hands[side].item = c;
       c.onGrab?.();
       label(side);
+    },
+    enterLevel: () => {
+      for (const side of ['left', 'right'] as Side[]) {
+        const it = hands[side].item;
+        if (it?.persistent) it.onEnterLevel?.();
+      }
     },
     dropAll: () => {
       loose.length = 0; // any in-flight projectile stops existing too

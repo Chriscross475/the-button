@@ -324,6 +324,7 @@ export class Game {
     this.current = instance;
     this.ctx.levelRoot = instance.root;
     this.scene.add(instance.root);
+    this.carry.enterLevel(); // items the player carried in re-establish their hooks here
 
     this.camera.position.copy(instance.spawn.pos);
     this.camera.position.y = CONFIG.PLAYER_HEIGHT;
