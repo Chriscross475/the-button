@@ -45,11 +45,13 @@ export function revealBasketball(ctx: GameContext): void {
   rim.rotation.x = Math.PI / 2;
   hoop.add(rim);
   const netMat = new THREE.MeshBasicMaterial({ color: 0xe8e8e8 });
+  const net: THREE.Mesh[] = [];
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2;
     const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.45, 4), netMat);
     seg.position.set(Math.cos(a) * RIM_R * 0.85, -0.22, Math.sin(a) * RIM_R * 0.85);
     hoop.add(seg);
+    net.push(seg);
   }
 
   // ── State ──
@@ -134,6 +136,15 @@ export function revealBasketball(ctx: GameContext): void {
     points += pts;
     sparkle();
     pop();
+    // A satisfying swish: the net snaps down and springs back.
+    let st = 0;
+    addUpdater((dt) => {
+      st += dt;
+      const k = Math.sin(Math.min(1, st / 0.35) * Math.PI); // 0 → 1 → 0
+      for (const seg of net) seg.scale.y = 1 + k * 0.8;
+      if (st >= 0.35) { for (const seg of net) seg.scale.y = 1; return true; }
+      return false;
+    });
   };
 
   const hud = () => setCounter(`HOOPS  ${points} pts   ${Math.max(0, Math.ceil(timeLeft))}s`);
@@ -169,10 +180,23 @@ export function revealBasketball(ctx: GameContext): void {
 
     const settled = p.y <= BALL_R + 0.001 && Math.abs(vel.y) < 0.7 && Math.hypot(vel.x, vel.z) < 0.4;
     if (mode === 'flying') {
-      if (!ended && !scored && prevY > RIM_Y && p.y <= RIM_Y && vel.y < 0 && Math.hypot(p.x, p.z - RIM_Z) < RIM_R * 0.92) {
+      // Aim-assist: while the ball is descending just above the rim, gently pull
+      // it toward the centre so near-misses curl in — easier + more satisfying.
+      if (vel.y < 0 && p.y > RIM_Y && p.y < RIM_Y + 2.4) {
+        const dx = -p.x;
+        const dz = RIM_Z - p.z;
+        const horiz = Math.hypot(dx, dz);
+        if (horiz > 1e-3 && horiz < 1.4) {
+          const pull = 10 * dt;
+          vel.x += (dx / horiz) * pull;
+          vel.z += (dz / horiz) * pull;
+        }
+      }
+      // Forgiving make: cross the rim plane descending, within a generous radius.
+      if (!ended && !scored && prevY > RIM_Y && p.y <= RIM_Y && vel.y < 0 && Math.hypot(p.x, p.z - RIM_Z) < RIM_R * 1.15) {
         scored = true;
         const far = Math.hypot(throwPos.x, throwPos.z - RIM_Z) > FAR_DIST;
-        score(far ? 3 : 1);
+        score(far ? 3 : 2); // a normal sink is 2; a far one quietly counts 3
       }
       // The SAME ball comes to rest wherever it lands — no respawn; you go fetch it.
       if (settled) { vel.set(0, 0, 0); mode = 'free'; }
@@ -183,7 +207,7 @@ export function revealBasketball(ctx: GameContext): void {
     return false; // never stop — the ball lives for the whole level
   });
 
-  ctx.narrate('A hoop, and a ball that drops at your feet. Thirty seconds — score as many as you can. Sink one from the far side and it counts for three. Go.', 7000);
+  ctx.narrate('A hoop, and a ball that drops at your feet. Thirty seconds on the clock — sink as many as you can. Go on, then. Impress me.', 7000);
 
   // The kept basket: a small hoop on two legs (origin at the feet, rim ~chest
   // height) that waddles after you. The companion system points a follower's
