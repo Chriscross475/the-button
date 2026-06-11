@@ -29,6 +29,11 @@ export interface ExitRoomOpts {
   facing?: ExitFacing; // which wall has the doorway you enter through
   openTop?: boolean; // omit the ceiling (e.g. you land in from a launch)
   facade?: boolean; // wrap the white box in a brown cabin shell + roof (default true)
+  /** Make the SOLID walls collide (a row of obstacles along each) so the player
+   *  can't walk through them — use when the room sits in open, walkable space
+   *  (e.g. the forest cabin) and the doorway must be the only way in. Leave off
+   *  for ELEVATED rooms (their XZ obstacles would also block the ground below). */
+  solidWalls?: boolean;
 }
 
 export function buildExitRoom(ctx: GameContext, opts: ExitRoomOpts): RoomBounds {
@@ -63,12 +68,22 @@ export function buildExitRoom(ctx: GameContext, opts: ExitRoomOpts): RoomBounds 
     rg.add(ceiling);
   }
 
+  // A row of overlapping obstacles along a solid wall (opt-in) so the player
+  // can't stroll through it. Stepped tight enough to leave no gap to slip past.
+  const solidRowX = (z: number) => {
+    for (let x = cx - hw; x <= cx + hw + 1e-3; x += 1.0) ctx.addObstacle({ x, z, radius: 0.7 });
+  };
+  const solidRowZ = (x: number) => {
+    for (let z = cz - hd; z <= cz + hd + 1e-3; z += 1.0) ctx.addObstacle({ x, z, radius: 0.7 });
+  };
+
   const zWall = (z: number, gap: boolean) => {
     if (!gap) {
       const m = new THREE.Mesh(new THREE.BoxGeometry(RW, RH, T), wallMat);
       m.position.set(cx, RH / 2, z);
       m.receiveShadow = true;
       rg.add(m);
+      if (opts.solidWalls) solidRowX(z);
       return;
     }
     const sideW = (RW - DOOR_W) / 2;
@@ -86,6 +101,7 @@ export function buildExitRoom(ctx: GameContext, opts: ExitRoomOpts): RoomBounds 
       m.position.set(x, RH / 2, cz);
       m.receiveShadow = true;
       rg.add(m);
+      if (opts.solidWalls) solidRowZ(x);
       return;
     }
     const sideD = (RD - DOOR_W) / 2;

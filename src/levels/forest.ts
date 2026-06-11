@@ -250,7 +250,7 @@ export function revealForest(ctx: GameContext): void {
   mkWall(HALF, 0, -Math.PI / 2);   // east wall, faces -X (inward)
 
   // A white room waiting in the clearing — walk in and press to go on.
-  buildExitRoom(ctx, { center: EXIT, facing: 'posZ' });
+  buildExitRoom(ctx, { center: EXIT, facing: 'posZ', solidWalls: true }); // walls block — only the door lets you in
 
   // ── A planked double door bars the cabin entrance. By hand it won't budge —
   //    you have to smash the plank with the axe. ──
