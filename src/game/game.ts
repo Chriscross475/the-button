@@ -202,6 +202,15 @@ export class Game {
       },
       setWheel: (on) => this.setWheelMode(on),
       setControlMode: (cm) => {
+        // Leaving a mode that drove the camera (e.g. the slingshot turret): sync
+        // the look angles to where the camera actually ended up, so walking
+        // resumes from there instead of SNAPPING back to the pre-control view.
+        if (!cm && this.controlMode) {
+          const dir = new THREE.Vector3();
+          this.camera.getWorldDirection(dir);
+          setYaw(Math.atan2(-dir.x, -dir.z));
+          setPitch(Math.asin(Math.max(-1, Math.min(1, dir.y))));
+        }
         this.controlMode = cm;
       },
       setBounds: (b) => {

@@ -372,16 +372,19 @@ function makeArm(): THREE.Group {
   hand.position.set(0, 0.1, 0.02);
   g.add(hand);
 
-  // Forearm hinged at the WRIST so its top always meets the hand (no gap), then
-  // angled back toward the player. Pivot group at the wrist; limb hangs below.
+  // Forearm hinged at the WRIST so its top always meets the hand (no gap). The
+  // arm is view-locked (pinHand sets its quaternion to the camera), so a big
+  // back-tilt makes the forearm run from the hand BACK toward the viewpoint —
+  // i.e. it comes from the camera forward to the item, angled slightly up — rather
+  // than dropping vertically from the hand "out of the ground".
   const elbow = new THREE.Group();
   elbow.position.set(0, 0.06, 0.03);
-  elbow.rotation.x = 0.6; // tilt the forearm back toward the body
+  elbow.rotation.x = 1.2; // forearm runs back toward the camera (nearly horizontal)
   const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.058, 0.1, 10), skin);
   wrist.position.set(0, -0.04, 0);
   elbow.add(wrist);
-  const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.085, 0.46, 10), sleeve);
-  forearm.position.set(0, -0.27, 0); // hangs from the pivot, top under the hand
+  const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.085, 0.5, 10), sleeve);
+  forearm.position.set(0, -0.29, 0); // hangs from the pivot, top under the hand
   elbow.add(forearm);
   g.add(elbow);
   return g;
