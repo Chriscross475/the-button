@@ -280,6 +280,25 @@ function makeRock(): THREE.Mesh {
   return m;
 }
 
+// A banded stack of cash (origin at its base, so it sits on a surface). Grabbable
+// via the money object (src/objects/money.ts).
+function makeMoney(): THREE.Group {
+  const g = new THREE.Group();
+  const green = new THREE.MeshStandardMaterial({ color: 0x2e7d32, roughness: 0.8 });
+  const band = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5, metalness: 0.4 });
+  for (let i = 0; i < 7; i++) {
+    const bill = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.26), green);
+    bill.position.set((Math.random() - 0.5) * 0.18, 0.03 + i * 0.055, (Math.random() - 0.5) * 0.18);
+    bill.rotation.y = (Math.random() - 0.5) * 0.5;
+    bill.castShadow = true;
+    g.add(bill);
+  }
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.3), band);
+  strap.position.set(0, 0.21, 0);
+  g.add(strap);
+  return g;
+}
+
 // A short tree stump (used by the axe-in-trunk composition + anywhere a stump
 // is handy). Tagged 'stump' when part of a composition.
 function makeStump(): THREE.Group {
@@ -403,6 +422,7 @@ defineAsset('campfire', makeCampfire);
 defineAsset('chicken-leg', makeChickenLeg);
 defineAsset('statue', makeStatue);
 defineAsset('rock', makeRock);
+defineAsset('money', makeMoney);
 defineAsset('stump', makeStump);
 defineAsset('arm', makeArm);
 defineAsset('crime-outline', makeCrimeOutline);

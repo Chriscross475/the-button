@@ -8,6 +8,7 @@ import { setCounter, hideCounter } from '../ui/counter';
 import { defineCombine, type Carryable } from '../game/combine';
 import { createAsset } from '../assets';
 import { spawnFeathers } from '../assets/effects';
+import { spawnMoney as spawnCash } from '../objects/money';
 import { buildExitRoom } from './exit-room';
 import { vo } from '../audio/vo-shared';
 
@@ -541,17 +542,8 @@ export function revealDucks(ctx: GameContext): void {
 
   const spawnMoney = (pos: THREE.Vector3) => {
     rewardPlinth(pos);
-    const green = new THREE.MeshStandardMaterial({ color: 0x2e7d32, roughness: 0.8 });
-    const band = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.5, metalness: 0.4 });
-    for (let i = 0; i < 7; i++) {
-      const bill = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.26), green);
-      bill.position.set(pos.x + (Math.random() - 0.5) * 0.18, 1.0 + i * 0.055, pos.z + (Math.random() - 0.5) * 0.18);
-      bill.rotation.y = (Math.random() - 0.5) * 0.5;
-      root.add(bill);
-    }
-    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.3), band);
-    strap.position.set(pos.x, 1.2, pos.z);
-    root.add(strap);
+    // Grabbable cash on top of the plinth — pick it up and carry it onward.
+    spawnCash(ctx, new THREE.Vector3(pos.x, 1.0, pos.z));
   };
 
   const resolve = (path: 'wolf' | 'stand' | 'none' | 'wolf-freed') => {
