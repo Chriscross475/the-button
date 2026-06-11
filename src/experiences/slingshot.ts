@@ -1,20 +1,9 @@
-import type { Experience, ExperienceContext } from './registry';
+import { defineReveal } from '../levels/scaffold';
 import { revealSlingshot } from '../levels/slingshot';
 
-// The slingshot yard — a full level (the trains' origin), entered via the
-// in-place reveal. Also reachable by walking up a tunnel in the tunnel level.
+// The slingshot yard — a full level (the trains' origin). NOT in the button's
+// random pool (weight 0): it's only reached by walking up the tunnel from the
+// tunnel level (which advanceTo's here by id), making it a discovered place
+// rather than another roll of the dice.
 
-let revealing = false;
-
-export const slingshot: Experience = {
-  id: 'slingshot',
-  weight: 1.1,
-  run(ctx: ExperienceContext) {
-    if (revealing) return;
-    revealing = true;
-    revealSlingshot(ctx);
-    window.setTimeout(() => {
-      revealing = false;
-    }, 4000);
-  },
-};
+export const slingshot = defineReveal('slingshot', 0, revealSlingshot);

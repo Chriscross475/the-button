@@ -41,3 +41,13 @@ export function hashLine(text: string): string {
   }
   return (h >>> 0).toString(16).padStart(8, '0');
 }
+
+// Marks FIXED narrator lines that are declared OUTSIDE a narrate literal —
+// named consts, rotation arrays, record values — so the pre-bake scanner
+// (scripts/generate-vo.ts) finds them. Identity at runtime; the scanner
+// extracts every string literal inside the marker's parenthesized span.
+// Wrap the whole declaration: an array of lines, a record of lines, or a
+// single line string. (No quoted examples here — the scanner would bake them.)
+export function vo<T>(lines: T): T {
+  return lines;
+}

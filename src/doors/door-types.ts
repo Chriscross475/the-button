@@ -1,12 +1,15 @@
 import * as THREE from 'three';
+import { vo } from '../audio/vo-shared';
 
 // The "how many ways can a door open" registry. Each type builds its own
 // geometry and defines open(p) where p: 0 = shut, 1 = fully open.
 //
 // Two rules the corridor relies on:
 //   1. At p = 0 every door FULLY COVERS its w×h opening (no see-through gaps).
-//   2. The list is ordered SIMPLE → COMPLEX; the corridor assigns them in
-//      order, so each successive door opens in a more elaborate way.
+//   2. The list is THREE SETS of five, one set per walk (out, back, the key
+//      trip) — the corridor assigns DOOR_TYPES[walk * 5 + k] to changing door
+//      k. Each set runs SIMPLE → COMPLEX, so every walk escalates afresh.
+//      The locked sixth door is separate (LOCKED_DOOR_TYPE) and never swaps.
 
 export interface DoorHandle {
   group: THREE.Group; // positioned + rotated by the caller (placed in the wall)
@@ -19,30 +22,34 @@ export interface DoorType {
   build: (width: number, height: number) => DoorHandle;
 }
 
-const FRAME = new THREE.MeshStandardMaterial({ color: 0x2c2e36, roughness: 0.5, metalness: 0.6 });
-const PANEL = new THREE.MeshStandardMaterial({ color: 0x8a5a32, roughness: 0.7, metalness: 0.1 });
-// Multi-part doors keep ALL their parts the same colour as the main panel.
-const PANEL2 = new THREE.MeshStandardMaterial({ color: 0x8a5a32, roughness: 0.7, metalness: 0.1 });
+// Door materials are built FRESH per door (factories, not shared singletons):
+// the corridor disposes doors mid-level (every reshuffle) and on exit, so a
+// shared material would be .dispose()d out from under the doors still standing.
+// All parts of a door share the one colour; multi-part doors look identical.
+const frameMat = () => new THREE.MeshStandardMaterial({ color: 0x2c2e36, roughness: 0.5, metalness: 0.6 });
+const panelMat = () => new THREE.MeshStandardMaterial({ color: 0x8a5a32, roughness: 0.7, metalness: 0.1 });
 const T = 0.18; // panel thickness
 
 function frame(w: number, h: number): THREE.Group {
   const g = new THREE.Group();
+  const fm = frameMat(); // one frame material per door — freed with the door
   const postGeo = new THREE.BoxGeometry(0.3, h + 0.4, 0.5);
   for (const x of [-(w / 2 + 0.15), w / 2 + 0.15]) {
-    const p = new THREE.Mesh(postGeo, FRAME);
+    const p = new THREE.Mesh(postGeo, fm);
     p.position.set(x, (h + 0.4) / 2, 0);
     p.castShadow = true;
     g.add(p);
   }
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(w + 0.9, 0.3, 0.5), FRAME);
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(w + 0.9, 0.3, 0.5), fm);
   lintel.position.set(0, h + 0.25, 0);
   g.add(lintel);
   return g;
 }
 
 // A leaf, slightly oversized so closed panels always overlap their neighbours /
-// the frame — no hairline gaps showing the dark interior.
-function leaf(w: number, h: number, mat = PANEL): THREE.Mesh {
+// the frame — no hairline gaps showing the dark interior. A fresh panel material
+// per leaf (omit `mat`) so it disposes cleanly with its door.
+function leaf(w: number, h: number, mat: THREE.Material = panelMat()): THREE.Mesh {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, h + 0.04, T), mat);
   m.castShadow = true;
   m.receiveShadow = true;
@@ -64,10 +71,12 @@ const HALF_PI = Math.PI / 2;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 export const DOOR_TYPES: DoorType[] = [
+  // ── Set 1 — the first walk. ──
+
   // 1 — swing: one leaf on a side hinge, with a knob; opens toward the front.
   {
     id: 'swing',
-    name: 'a door that swings',
+    name: vo('a door that swings.'),
     build(w, h) {
       const g = frame(w, h);
       const lf = leaf(w, h);
@@ -90,7 +99,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 2 — lift: one leaf rises into the lintel.
   {
     id: 'slide-up',
-    name: 'a door that lifts',
+    name: vo('a door that lifts.'),
     build(w, h) {
       const g = frame(w, h);
       const l = leaf(w, h);
@@ -103,7 +112,7 @@ export const DOOR_TYPES: DoorType[] = [
   // 3 — slide aside: one leaf slides into the wall.
   {
     id: 'slide-side',
-    name: 'a door that slides aside',
+    name: vo('a door that slides aside.'),
     build(w, h) {
       const g = frame(w, h);
       const l = leaf(w, h);
@@ -119,7 +128,7 @@ export const DOOR_TYPES: DoorType[] = [
   // revolve: one leaf turns about its vertical centre axis.
   {
     id: 'revolve',
-    name: 'a door that pivots in place',
+    name: vo('a door that pivots in place.'),
     build(w, h) {
       const g = frame(w, h);
       const piv = hinged(leaf(w, h), 0, 0, 0, h / 2); // hinge: vertical centre axis
@@ -131,11 +140,11 @@ export const DOOR_TYPES: DoorType[] = [
   // 6 — double swing: two leaves part down the middle.
   {
     id: 'double-swing',
-    name: 'a door that parts in the middle',
+    name: vo('a door that parts in the middle.'),
     build(w, h) {
       const g = frame(w, h);
       const lp = hinged(leaf(w / 2, h), -w / 2, 0, -w / 4, h / 2); // left leaf, outer-edge hinge
-      const rp = hinged(leaf(w / 2, h, PANEL2), w / 2, 0, w / 4, h / 2); // right leaf
+      const rp = hinged(leaf(w / 2, h), w / 2, 0, w / 4, h / 2); // right leaf
       g.add(lp, rp);
       return {
         group: g,
@@ -147,14 +156,16 @@ export const DOOR_TYPES: DoorType[] = [
     },
   },
 
+  // ── Set 2 — the walk back. ──
+
   // 7 — split: two leaves slide apart sideways into the walls.
   {
     id: 'split',
-    name: 'a door that splits apart',
+    name: vo('a door that splits apart.'),
     build(w, h) {
       const g = frame(w, h);
       const l = leaf(w / 2, h);
-      const r = leaf(w / 2, h, PANEL2);
+      const r = leaf(w / 2, h);
       l.position.set(-w / 4, h / 2, 0);
       r.position.set(w / 4, h / 2, 0);
       g.add(l, r);
@@ -171,11 +182,11 @@ export const DOOR_TYPES: DoorType[] = [
   // 8 — vertical split: top half rises, bottom half sinks.
   {
     id: 'double-slide-vertical',
-    name: 'a door whose halves slide opposite',
+    name: vo('a door whose halves slide opposite.'),
     build(w, h) {
       const g = frame(w, h);
       const top = leaf(w, h / 2);
-      const bot = leaf(w, h / 2, PANEL2);
+      const bot = leaf(w, h / 2);
       top.position.set(0, (h * 3) / 4, 0);
       bot.position.set(0, h / 4, 0);
       g.add(top, bot);
@@ -192,13 +203,13 @@ export const DOOR_TYPES: DoorType[] = [
   // 9 — iris: four panels retract up/down/left/right.
   {
     id: 'iris',
-    name: 'a door that irises open',
+    name: vo('a door that irises open.'),
     build(w, h) {
       const g = frame(w, h);
       const top = leaf(w, h / 2);
-      const bot = leaf(w, h / 2, PANEL2);
+      const bot = leaf(w, h / 2);
       const lef = leaf(w / 2, h);
-      const rig = leaf(w / 2, h, PANEL2);
+      const rig = leaf(w / 2, h);
       top.position.set(0, (h * 3) / 4, 0.04);
       bot.position.set(0, h / 4, 0.04);
       lef.position.set(-w / 4, h / 2, -0.04);
@@ -219,13 +230,13 @@ export const DOOR_TYPES: DoorType[] = [
   // 10 — corners: four quarter panels retreat to the corners.
   {
     id: 'four-corner',
-    name: 'a door that retreats to its corners',
+    name: vo('a door that retreats to its corners.'),
     build(w, h) {
       const g = frame(w, h);
       const quads = [
         { mesh: leaf(w / 2, h / 2), sx: -1, sy: 1, mat: 0 },
-        { mesh: leaf(w / 2, h / 2, PANEL2), sx: 1, sy: 1, mat: 1 },
-        { mesh: leaf(w / 2, h / 2, PANEL2), sx: -1, sy: -1, mat: 1 },
+        { mesh: leaf(w / 2, h / 2), sx: 1, sy: 1, mat: 1 },
+        { mesh: leaf(w / 2, h / 2), sx: -1, sy: -1, mat: 1 },
         { mesh: leaf(w / 2, h / 2), sx: 1, sy: -1, mat: 0 },
       ];
       for (const q of quads) {
@@ -244,10 +255,25 @@ export const DOOR_TYPES: DoorType[] = [
     },
   },
 
+  // 10 — sink: one leaf drops into the floor.
+  {
+    id: 'sink-floor',
+    name: vo('a door that sinks into the floor.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const l = leaf(w, h);
+      l.position.set(0, h / 2, 0);
+      g.add(l);
+      return { group: g, open: (p) => (l.position.y = h / 2 - p * (h + 0.3)) };
+    },
+  },
+
+  // ── Set 3 — the key trip. ──
+
   // 11 — dissolve: a grid of tiles that shrink away in a sweep.
   {
     id: 'grid-dissolve',
-    name: 'a door that dissolves tile by tile',
+    name: vo('a door that dissolves tile by tile.'),
     build(w, h) {
       const g = frame(w, h);
       const cols = 3;
@@ -255,7 +281,7 @@ export const DOOR_TYPES: DoorType[] = [
       const tiles: { mesh: THREE.Mesh; delay: number }[] = [];
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-          const m = leaf((w / cols) * 1.02, (h / rows) * 1.02, (r + c) % 2 ? PANEL2 : PANEL);
+          const m = leaf((w / cols) * 1.02, (h / rows) * 1.02);
           m.position.set(-w / 2 + (c + 0.5) * (w / cols), (r + 0.5) * (h / rows), 0);
           g.add(m);
           tiles.push({ mesh: m, delay: (r * cols + c) / (cols * rows) });
@@ -272,4 +298,136 @@ export const DOOR_TYPES: DoorType[] = [
       };
     },
   },
+
+  // 12 — blind: horizontal slats gather and squash up into the lintel,
+  // bottom-first, like a roller blind.
+  {
+    id: 'roll-up',
+    name: vo('a door that rolls up like a blind.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const SLATS = 6;
+      const sh = h / SLATS;
+      const slats: { mesh: THREE.Mesh; y0: number; delay: number }[] = [];
+      for (let i = 0; i < SLATS; i++) {
+        const m = leaf(w, sh * 1.04);
+        const y0 = (i + 0.5) * sh;
+        m.position.set(0, y0, 0);
+        g.add(m);
+        slats.push({ mesh: m, y0, delay: i / SLATS });
+      }
+      return {
+        group: g,
+        open: (p) => {
+          for (const sl of slats) {
+            const local = clamp01((p - sl.delay * 0.5) / (1 - sl.delay * 0.5));
+            sl.mesh.position.y = sl.y0 + local * (h + 0.25 - sl.y0);
+            sl.mesh.scale.y = Math.max(0.16, 1 - local * 0.84);
+          }
+        },
+      };
+    },
+  },
+
+  // 13 — accordion: vertical pleats angle and pack toward the left jamb.
+  {
+    id: 'accordion',
+    name: vo('a door that folds like an accordion.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const FOLDS = 6;
+      const fw = w / FOLDS;
+      const strips: THREE.Mesh[] = [];
+      for (let i = 0; i < FOLDS; i++) {
+        const m = leaf(fw * 1.06, h);
+        m.position.set(-w / 2 + (i + 0.5) * fw, h / 2, 0);
+        g.add(m);
+        strips.push(m);
+      }
+      return {
+        group: g,
+        open: (p) => {
+          const packed = fw * 0.22;
+          for (let i = 0; i < FOLDS; i++) {
+            const m = strips[i];
+            const x0 = -w / 2 + (i + 0.5) * fw;
+            const x1 = -w / 2 + (i + 0.5) * packed;
+            m.position.x = x0 + (x1 - x0) * p;
+            m.scale.x = 1 - p * 0.78;
+            m.rotation.y = (i % 2 ? 1 : -1) * p * 0.9; // the pleat angle sells the fold
+          }
+        },
+      };
+    },
+  },
+
+  // 14 — unravel: vertical strips take their leave one by one — odd strips
+  // rise, even strips drop, in a stagger across the door.
+  {
+    id: 'unravel',
+    name: vo('a door that unravels in strips.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const STRIPS = 5;
+      const sw = w / STRIPS;
+      const strips: { mesh: THREE.Mesh; up: boolean; delay: number }[] = [];
+      for (let i = 0; i < STRIPS; i++) {
+        const m = leaf(sw * 1.04, h);
+        m.position.set(-w / 2 + (i + 0.5) * sw, h / 2, 0);
+        g.add(m);
+        strips.push({ mesh: m, up: i % 2 === 0, delay: i / STRIPS });
+      }
+      return {
+        group: g,
+        open: (p) => {
+          for (const st of strips) {
+            const local = clamp01((p - st.delay * 0.45) / (1 - st.delay * 0.45));
+            st.mesh.position.y = h / 2 + (st.up ? 1 : -1) * local * (h + 0.4);
+          }
+        },
+      };
+    },
+  },
+
+  // 15 — twirl: the leaf spins about its vertical centre and thins to nothing.
+  {
+    id: 'twirl',
+    name: vo('a door that twirls away.'),
+    build(w, h) {
+      const g = frame(w, h);
+      const piv = hinged(leaf(w, h), 0, 0, 0, h / 2);
+      g.add(piv);
+      return {
+        group: g,
+        open: (p) => {
+          piv.rotation.y = p * Math.PI * 4; // two full turns
+          const sc = Math.max(0.001, 1 - p);
+          piv.scale.set(sc, 1, sc); // spins itself thin
+        },
+      };
+    },
+  },
+
 ];
+
+// The sixth door — the LOCKED one. It never joins the walk sets and never
+// swaps: one door, one mechanism, saved for the unlock. It leans politely
+// toward the player, then excuses itself through the floor.
+export const LOCKED_DOOR_TYPE: DoorType = {
+  id: 'bow',
+  name: vo('a door that takes a bow.'),
+  build(w, h) {
+    const g = frame(w, h);
+    const piv = hinged(leaf(w, h), 0, 0, 0, h / 2); // pivot at the base
+    g.add(piv);
+    return {
+      group: g,
+      open: (p) => {
+        const lean = Math.min(1, p / 0.45);
+        const sink = clamp01((p - 0.45) / 0.55);
+        piv.rotation.x = lean * 0.5; // a modest bow toward the player…
+        piv.position.y = -sink * (h + 0.6); // …then it excuses itself
+      },
+    };
+  },
+};

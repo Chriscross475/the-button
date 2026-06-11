@@ -25,20 +25,23 @@ Narration is **pre-baked to static WAV assets** (`public/vo/<hash>.wav`) and pla
 directly at runtime — instant, with zero server inference. Generate them with:
 
 ```sh
-npm run vo      # needs the local Sandbox kokoro at localhost:37777
+npm run vo      # self-contained: in-process kokoro-js (first run downloads the ~330MB model)
 ```
 
 `scripts/generate-vo.ts` scans the source for `narrate('...')` lines, synthesises each
-(kokoro `bm_george`, with the per-phrase pauses baked in), and writes a content-hashed
+(kokoro `bm_george` via **kokoro-js**, the ONNX port of the same model — no Python,
+no server), with the per-phrase pauses baked in, and writes a content-hashed
 WAV plus a manifest (`src/audio/vo-manifest.json`, imported by the runtime). Only
-new/changed lines regenerate; stale WAVs are pruned. Run it locally where kokoro is
-fast, then **commit** `public/vo/*.wav` + the manifest.
+new/changed lines regenerate; stale WAVs are pruned. **Commit** `public/vo/*.wav`
++ the manifest after baking.
 
 At runtime a fixed line plays its bundled WAV; anything not baked — dynamic lines, or a
 missing asset — falls back to the live `POST /api/tts` kokoro (Vite proxies it to
 `localhost:37777` in dev; Caddy routes it to the Oracle server in prod), then to the
-browser's Web Speech voice. A **VOICE: KOKORO / BASIC** menu toggle forces the browser
-voice. Keep spoken lines as fixed string literals so they all pre-bake.
+browser's Web Speech voice. Keep spoken lines as fixed
+string literals so they all pre-bake; lines stored in consts/arrays (rotation
+pools, death lines) must be wrapped in `vo(...)` (src/audio/vo-shared.ts) so the
+scanner finds them.
 
 ## Deploy
 

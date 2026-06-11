@@ -3,11 +3,12 @@ import type { Experience, ExperienceContext } from './registry';
 import { addUpdater } from './scheduler';
 import { pick } from './util';
 import { pop } from '../audio/sfx';
+import { vo } from '../audio/vo-shared';
 
 // The whole room briefly floods with a vivid colour, then eases back to white.
 // Cheap, fast, and a little unsettling — pure mood.
 
-const LINES = ['Mood lighting.', 'The room felt a colour.', 'Ambiance.', 'A vibe, briefly.'];
+const LINES = vo(['Mood lighting.', 'The room felt a colour.', 'Ambiance.', 'A vibe, briefly.']);
 const COLORS = [0xff3b3b, 0x3b6bff, 0x9b3bff, 0x18c98a, 0xff8c1a, 0xff3bd0];
 
 export const colorFlash: Experience = {

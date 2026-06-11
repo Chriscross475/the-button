@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import type { GameContext, ControlMode } from '../game/types';
 import { addUpdater } from '../experiences/scheduler';
 import { createAsset, trainStrike } from '../assets';
-import { spawnPedestalButton } from '../button/pedestal-button';
 import { groundPlane, hideRoomShell } from './scaffold';
 import { registerInteractable } from '../interactables/system';
 import { whoosh, thunder, trainHorn, pop, thud, click } from '../audio/sfx';
@@ -350,15 +349,8 @@ export function revealSlingshot(ctx: GameContext): void {
     },
   });
 
-  // ── Exit ──
-  const exit = spawnPedestalButton(
-    root,
-    new THREE.Vector3(-5, 0, 6),
-    () => ctx.advance(new THREE.Vector3(-5, 0, 6)),
-    { glow: false },
-  );
-  ctx.addObstacle(exit.obstacle);
-
+  // No exit button: the yard is tunnel-only (weight 0) — you walk in from the
+  // tunnel and the only way out is walking back down it.
   ctx.setRegions([{ minX: -34, maxX: 34, minZ: -34, maxZ: 34, floorY: 0 }]);
 
   // Walk into the 2-track tunnel (the −Z one) and you pass through to the tunnel

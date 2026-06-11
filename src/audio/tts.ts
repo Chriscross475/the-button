@@ -32,20 +32,6 @@ function prebakedUrl(text: string): string | null {
   return BAKED.has(h) ? `${import.meta.env.BASE_URL}vo/${h}.wav` : null;
 }
 
-// Voice source — switchable by the player. 'kokoro' = server /api/tts (the good
-// British neural voice, consistent everywhere); 'basic' = the browser's built-in
-// Web Speech voice (varies by browser, but zero-latency + offline).
-export type TtsMode = 'kokoro' | 'basic';
-const MODE_KEY = 'button-tts-mode';
-function loadMode(): TtsMode {
-  try {
-    return localStorage.getItem(MODE_KEY) === 'basic' ? 'basic' : 'kokoro';
-  } catch {
-    return 'kokoro';
-  }
-}
-let mode: TtsMode = loadMode();
-
 let seq = 0; // newest line wins
 let currentAudio: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
@@ -210,12 +196,6 @@ export function speak(text: string): void {
   stopAudio();
   if (supported) window.speechSynthesis.cancel();
 
-  // Basic mode: the browser voice (it already pauses on dashes natively).
-  if (mode === 'basic') {
-    speakWebSpeech(text);
-    return;
-  }
-
   // Pre-baked asset → play it instantly (no server call). This covers the fixed
   // narration; dynamic lines fall through to the live /api/tts path.
   const baked = prebakedUrl(text);
@@ -244,24 +224,4 @@ export function isTtsEnabled(): boolean {
 export function toggleTts(): boolean {
   setTtsEnabled(!enabled);
   return enabled;
-}
-
-export function getTtsMode(): TtsMode {
-  return mode;
-}
-
-export function setTtsMode(m: TtsMode): void {
-  mode = m;
-  try {
-    localStorage.setItem(MODE_KEY, m);
-  } catch {
-    /* ignore */
-  }
-  cancelSpeech(); // stop whatever's playing in the old voice
-}
-
-/** Flip between the server kokoro voice and the basic browser voice. */
-export function cycleTtsMode(): TtsMode {
-  setTtsMode(mode === 'kokoro' ? 'basic' : 'kokoro');
-  return mode;
 }
