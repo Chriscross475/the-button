@@ -5,7 +5,7 @@ import { spawnPedestalButton } from '../button/pedestal-button';
 import { addUpdater } from '../experiences/scheduler';
 import { quack, thud, pop } from '../audio/sfx';
 import { setCounter, hideCounter } from '../ui/counter';
-import { defineCombine, type Carryable } from '../game/combine';
+import { defineCombine, type Carryable, type CombineTarget } from '../game/combine';
 import { createAsset } from '../assets';
 import { spawnFeathers } from '../assets/effects';
 import { spawnMoney as spawnCash } from '../objects/money';
@@ -65,34 +65,24 @@ function shuffleBag(lines: string[]): () => string {
   };
 }
 
-// Combining your OWN cooked duck (made in the forest) with the stand doubles the
-// payout. The active duck level installs the handler when its stand opens.
-let standDoubler: ((held: Carryable) => void) | null = null;
-defineCombine('cooked-duck', 'stand', (held) => standDoubler?.(held));
-
-// Bring the axe (from the forest) and you can smash the enclosure fences. The
-// active duck level wires each hook when the matching enclosure opens. The axe
-// is a tool — it stays in hand (return true).
-let smashFarm: (() => void) | null = null;
-let smashSaw: (() => void) | null = null;
-let smashStand: (() => void) | null = null;
-let smashWolf: (() => void) | null = null;
-defineCombine('axe', 'farm-fence', () => {
-  smashFarm?.();
-  return true;
-});
-defineCombine('axe', 'saw-fence', () => {
-  smashSaw?.();
-  return true;
-});
-defineCombine('axe', 'stand-fence', () => {
-  smashStand?.();
-  return true;
-});
-defineCombine('axe', 'wolf-fence', () => {
-  smashWolf?.();
-  return true;
-});
+// The duck room's axe/cooked-duck reactions are wired PER COMBINE TARGET, not via
+// mutable module globals: each fence/stand registers its handler in a WeakMap
+// keyed by its own CombineTarget when the enclosure opens, and the global recipe
+// looks it up. No stale state across re-entries, no order-of-init hazards.
+const fenceSmash = new WeakMap<CombineTarget, () => void>();
+const standDouble = new WeakMap<CombineTarget, (held: Carryable) => void>();
+// Combining your OWN cooked duck (made in the forest) with the stand doubles the payout.
+defineCombine('cooked-duck', 'stand', (held, t) => standDouble.get(t)?.(held));
+// Bring the axe and smash a fence open; the axe is a tool, so it stays in hand.
+const axeFence = (kind: string) =>
+  defineCombine('axe', kind, (_held, t) => {
+    fenceSmash.get(t)?.();
+    return true;
+  });
+axeFence('farm-fence');
+axeFence('saw-fence');
+axeFence('stand-fence');
+axeFence('wolf-fence');
 
 export function revealDucks(ctx: GameContext): void {
   const root = ctx.levelRoot;
@@ -573,9 +563,10 @@ export function revealDucks(ctx: GameContext): void {
       // stand and click that hand — the payout doubles.
       const fcx = (foodEnc.minX + foodEnc.maxX) / 2;
       const fcz = (foodEnc.minZ + foodEnc.maxZ) / 2;
-      ctx.addTarget({ kind: 'stand', position: new THREE.Vector3(fcx, 0, fcz), radius: 3.5 });
+      const standTgt: CombineTarget = { kind: 'stand', position: new THREE.Vector3(fcx, 0, fcz), radius: 3.5 };
+      ctx.addTarget(standTgt);
       let doubled = false;
-      standDoubler = (held) => {
+      standDouble.set(standTgt, (held) => {
         if (doubled) return;
         doubled = true;
         held.object.parent?.remove(held.object); // the cooked duck is given over
@@ -585,7 +576,7 @@ export function revealDucks(ctx: GameContext): void {
           7500,
           { priority: true },
         );
-      };
+      });
     }
 
     ctx.setRegions([
@@ -654,9 +645,9 @@ export function revealDucks(ctx: GameContext): void {
     });
 
     // ── Axe the wolf's gate open. Starved → it kills you. Fed enough → it's yours. ──
-    const wolfTarget = { kind: 'wolf-fence', position: new THREE.Vector3(wolfEnc.maxX, 0, wcz), radius: 3.2 };
+    const wolfTarget: CombineTarget = { kind: 'wolf-fence', position: new THREE.Vector3(wolfEnc.maxX, 0, wcz), radius: 3.2 };
     ctx.addTarget(wolfTarget);
-    smashWolf = () => {
+    fenceSmash.set(wolfTarget, () => {
       if (wolfFreed || resolved) return;
       root.remove(wolfFence.group);
       for (const o of wolfFence.obstacles) ctx.removeObstacle(o);
@@ -671,7 +662,7 @@ export function revealDucks(ctx: GameContext): void {
         ctx.narrate('You break the gate on a half-starved wolf. It does not thank you. It does not hesitate.', 4000, { priority: true });
         ctx.die('wolf');
       }
-    };
+    });
   };
 
   // ── The rescue's bitter twist: enough farm rescues opens the RIGHT wall onto a
@@ -695,10 +686,10 @@ export function revealDucks(ctx: GameContext): void {
     const standGroup = buildFoodStand(root, foodEnc);
 
     // ── Axe the stand apart for a hidden reward (the till behind the counter). ──
-    const standTarget = { kind: 'stand-fence', position: new THREE.Vector3(foodEnc.minX, 0, fcz), radius: 3.2 };
+    const standTarget: CombineTarget = { kind: 'stand-fence', position: new THREE.Vector3(foodEnc.minX, 0, fcz), radius: 3.2 };
     ctx.addTarget(standTarget);
     let standSmashed = false;
-    smashStand = () => {
+    fenceSmash.set(standTarget, () => {
       if (standSmashed) return;
       standSmashed = true;
       root.remove(standGroup);
@@ -707,7 +698,7 @@ export function revealDucks(ctx: GameContext): void {
       thud();
       spawnMoney(new THREE.Vector3(fcx, 0, fcz)); // the hidden till
       ctx.narrate('You take the axe to the stand. It comes apart in red splinters — and behind the counter, a till stuffed with the profits of your good intentions. A hidden reward. Filthy, but yours.', 7500, { priority: true });
-    };
+    });
   };
 
   // ── The reveal at quota: open the back wall, build the enclosures. ──
@@ -728,10 +719,10 @@ export function revealDucks(ctx: GameContext): void {
 
     // ── Axe interactivity: smash a fence with the axe (carried from the forest). ──
     const farmCx = (farmEnc.minX + farmEnc.maxX) / 2;
-    const farmTarget = { kind: 'farm-fence', position: new THREE.Vector3(farmCx, 0, encNearZ), radius: 3.2 };
+    const farmTarget: CombineTarget = { kind: 'farm-fence', position: new THREE.Vector3(farmCx, 0, encNearZ), radius: 3.2 };
     ctx.addTarget(farmTarget);
     let farmSmashed = false;
-    smashFarm = () => {
+    fenceSmash.set(farmTarget, () => {
       if (farmSmashed) return;
       farmSmashed = true;
       root.remove(farmFence.group);
@@ -755,13 +746,13 @@ export function revealDucks(ctx: GameContext): void {
         6500,
         { priority: true },
       );
-    };
+    });
 
     const sawCx = (sawEnc.minX + sawEnc.maxX) / 2;
-    const sawTarget = { kind: 'saw-fence', position: new THREE.Vector3(sawCx, 0, encNearZ), radius: 3.2 };
+    const sawTarget: CombineTarget = { kind: 'saw-fence', position: new THREE.Vector3(sawCx, 0, encNearZ), radius: 3.2 };
     ctx.addTarget(sawTarget);
     let sawSmashed = false;
-    smashSaw = () => {
+    fenceSmash.set(sawTarget, () => {
       if (sawSmashed) return;
       sawSmashed = true;
       root.remove(sawFence.group);
@@ -770,7 +761,7 @@ export function revealDucks(ctx: GameContext): void {
       pop();
       thud();
       ctx.narrate('You smash the fence around the saw. The saw, unfenced, is still a saw. No prize. Just better access to your mistakes.', 5500, { priority: true });
-    };
+    });
 
     // LEFT pen: the circular saw, a menacing spinning disc on the ground.
     buildSaw(root, sawEnc, dirt);
