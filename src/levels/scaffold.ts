@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { GameContext, RoomOpenOpts } from '../game/types';
 import type { Experience } from '../experiences/registry';
 import { COLOR } from '../assets/palette';
-import { currentGeneration } from '../experiences/scheduler';
+import { currentGeneration, addUpdater } from '../experiences/scheduler';
 
 // Building blocks + a scaffold for "reveal" levels — the experiences that open
 // the white hub room up into a full scene (forest, slingshot, tunnel…). They
@@ -92,4 +92,64 @@ export function defineReveal(
       reveal(ctx);
     },
   };
+}
+
+// ── Level kit: recurring building blocks, so a new level is composition. ──
+
+/** A WALK-THROUGH PORTAL (a tunnel mouth, a cracked wall): when the player steps
+ *  into `zone`, transition to level `to`, naming the portal via `entry` so the
+ *  destination can emerge them from its matching opening (see ctx.spawnAt /
+ *  ctx.entry). `ref` is the world point passed to advanceTo for the offset.
+ *  Pair it with `if (ctx.entry === '…') ctx.spawnAt(...)` in the destination. */
+export function walkThroughPortal(
+  ctx: GameContext,
+  opts: { zone: (p: THREE.Vector3) => boolean; to: string; ref: THREE.Vector3; entry?: string },
+): void {
+  let gone = false;
+  addUpdater(() => {
+    if (gone) return true;
+    if (opts.zone(ctx.playerPos())) {
+      gone = true;
+      ctx.advanceTo(opts.to, opts.ref, opts.entry);
+      return true;
+    }
+    return false;
+  });
+}
+
+/** The recurring stone REWARD PLINTH a prize sits on (money, the baby wolf…). */
+export function rewardPlinth(root: THREE.Object3D, pos: THREE.Vector3): void {
+  const stone = new THREE.MeshStandardMaterial({ color: 0xd2d2cc, roughness: 0.85 });
+  const part = (sx: number, sy: number, sz: number, y: number) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), stone);
+    m.position.set(pos.x, y, pos.z);
+    m.castShadow = true;
+    root.add(m);
+  };
+  part(0.7, 0.16, 0.7, 0.08); // base
+  part(0.46, 0.7, 0.46, 0.5); // column
+  part(0.62, 0.1, 0.62, 0.9); // cap
+}
+
+/** A jagged CRACKED OPENING in a wall — the look of a tunnel/forest portal.
+ *  Centred at `pos`; `facingY` rotates the dark recess to face into the room.
+ *  Rocks scatter along the wall's horizontal tangent. */
+export function crackedWall(root: THREE.Object3D, pos: THREE.Vector3, facingY: number): void {
+  const cave = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.2, 6),
+    new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 1 }),
+  );
+  cave.position.set(pos.x, 3, pos.z);
+  cave.rotation.y = facingY;
+  root.add(cave);
+  const tx = Math.cos(facingY); // horizontal tangent of the wall plane
+  const tz = -Math.sin(facingY);
+  const rockMat = new THREE.MeshStandardMaterial({ color: 0x5a5550, roughness: 1, flatShading: true });
+  for (let i = 0; i < 8; i++) {
+    const off = (Math.random() - 0.5) * 5.2;
+    const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.5 + Math.random() * 0.6), rockMat);
+    r.position.set(pos.x + tx * off, 0.6 + Math.random() * 5.4, pos.z + tz * off);
+    r.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    root.add(r);
+  }
 }

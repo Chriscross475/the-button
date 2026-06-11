@@ -9,6 +9,7 @@ import { defineCombine, type Carryable } from '../game/combine';
 import { createAsset } from '../assets';
 import { spawnFeathers } from '../assets/effects';
 import { spawnMoney as spawnCash } from '../objects/money';
+import { rewardPlinth as kitRewardPlinth } from './scaffold';
 import { buildExitRoom } from './exit-room';
 import { vo } from '../audio/vo-shared';
 
@@ -518,19 +519,7 @@ export function revealDucks(ctx: GameContext): void {
 
   const throwableLeft = () => ducks.reduce((n, dk) => n + (dk.homed ? 0 : 1), 0);
 
-  const rewardPlinth = (pos: THREE.Vector3) => {
-    const stone = new THREE.MeshStandardMaterial({ color: 0xd2d2cc, roughness: 0.85 });
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 0.7), stone);
-    base.position.set(pos.x, 0.08, pos.z);
-    const col = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.7, 0.46), stone);
-    col.position.set(pos.x, 0.5, pos.z);
-    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.1, 0.62), stone);
-    cap.position.set(pos.x, 0.9, pos.z);
-    for (const m of [base, col, cap]) {
-      m.castShadow = true;
-      root.add(m);
-    }
-  };
+  const rewardPlinth = (pos: THREE.Vector3) => kitRewardPlinth(root, pos);
 
   const spawnBabyWolf = (pos: THREE.Vector3) => {
     rewardPlinth(pos);

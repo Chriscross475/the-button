@@ -7,6 +7,7 @@ import { createAsset, makeRng, trainStrike } from '../assets';
 import { registerInteractable } from '../interactables/system';
 import { defineCombine, type Carryable } from '../game/combine';
 import { feedsTunnel } from './slingshot-state';
+import { walkThroughPortal } from './scaffold';
 
 // Axe a planked-shut side tunnel open. The active tunnel level wires the hook.
 let breakSidePlank: (() => void) | null = null;
@@ -299,16 +300,11 @@ export function revealTunnel(ctx: GameContext): void {
     // a passage notch so you can step INTO the hole
     ctx.setRegions([...baseRegions, { minX: crackX, maxX: crackX + 5, minZ: crackZ - 2, maxZ: crackZ + 2, floorY: 0 }]);
     ctx.narrate('The rock splinters and gives way — daylight beyond, and the smell of pine. A way through.', 6000, { priority: true });
-    let gone = false;
-    addUpdater(() => {
-      if (gone) return true;
-      const p = ctx.playerPos();
-      if (p.x > crackX + 1.6 && Math.abs(p.z - crackZ) < 2.2) {
-        gone = true;
-        ctx.advanceTo('forest', new THREE.Vector3(crackX, 0, crackZ), 'crack'); // step through → the forest, out its crack
-        return true;
-      }
-      return false;
+    walkThroughPortal(ctx, {
+      zone: (p) => p.x > crackX + 1.6 && Math.abs(p.z - crackZ) < 2.2,
+      to: 'forest',
+      ref: new THREE.Vector3(crackX, 0, crackZ),
+      entry: 'crack', // step through → the forest, out its crack
     });
   };
 
@@ -324,16 +320,11 @@ export function revealTunnel(ctx: GameContext): void {
 
   // Walk up tunnel 2 (only safe once the trains are stopped) all the way to the
   // back, and you come out at the slingshot yard — where the trains are launched.
-  let toSling = false;
-  addUpdater(() => {
-    if (toSling) return true;
-    const p = ctx.playerPos();
-    if (p.z > WALL_T2 + 5 && Math.abs(p.x) < 2.4) {
-      toSling = true;
-      ctx.advanceTo('slingshot', new THREE.Vector3(0, 0, WALL_T2 + 6), 'tunnel');
-      return true;
-    }
-    return false;
+  walkThroughPortal(ctx, {
+    zone: (p) => p.z > WALL_T2 + 5 && Math.abs(p.x) < 2.4,
+    to: 'slingshot',
+    ref: new THREE.Vector3(0, 0, WALL_T2 + 6),
+    entry: 'tunnel',
   });
 
   // ── A planked-shut side tunnel on the −X wall. Bring the axe (from the forest)

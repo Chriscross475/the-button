@@ -6,6 +6,7 @@ import { pop, thud } from '../audio/sfx';
 import { createAsset } from '../assets';
 import { spawnDuck } from '../objects/duck';
 import { spawnAxe } from '../objects/axe';
+import { walkThroughPortal, crackedWall } from './scaffold';
 
 // A LEVEL — the forest. The walls topple and you're on a wide outdoor plain
 // dotted with trees, under a bright sky. Resolution: find the clearing with the
@@ -251,33 +252,13 @@ export function revealForest(ctx: GameContext): void {
 
   // ── A cracked opening in the east wall — the passage back to the tunnel. ──
   const CRACK_Z = 0;
-  const caveMat = new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 1 });
-  const cave = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 6), caveMat);
-  cave.position.set(HALF - 0.06, 3, CRACK_Z);
-  cave.rotation.y = -Math.PI / 2; // faces −X, into the forest
-  root.add(cave);
-  const rockMat = new THREE.MeshStandardMaterial({ color: 0x5a5550, roughness: 1, flatShading: true });
-  for (let i = 0; i < 8; i++) {
-    const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.5 + Math.random() * 0.6), rockMat);
-    r.position.set(HALF - 0.25, 0.6 + Math.random() * 5.4, CRACK_Z + (Math.random() - 0.5) * 5.2);
-    r.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
-    root.add(r);
-  }
-  // Arriving from the tunnel? Step out of the crack, facing into the forest.
-  if (ctx.entry === 'crack') {
-    ctx.spawnAt(new THREE.Vector3(HALF - 3, 0, CRACK_Z), Math.PI / 2);
-  }
-  // Walk into the crack → back to the tunnel, emerging from its cracked wall.
-  let toTunnel = false;
-  addUpdater(() => {
-    if (toTunnel) return true;
-    const p = ctx.playerPos();
-    if (p.x > HALF - 1.5 && Math.abs(p.z - CRACK_Z) < 2.5) {
-      toTunnel = true;
-      ctx.advanceTo('tunnel', new THREE.Vector3(HALF, 0, CRACK_Z), 'crack');
-      return true;
-    }
-    return false;
+  crackedWall(root, new THREE.Vector3(HALF - 0.06, 0, CRACK_Z), -Math.PI / 2); // faces −X, into the forest
+  if (ctx.entry === 'crack') ctx.spawnAt(new THREE.Vector3(HALF - 3, 0, CRACK_Z), Math.PI / 2); // emerge from it
+  walkThroughPortal(ctx, {
+    zone: (p) => p.x > HALF - 1.5 && Math.abs(p.z - CRACK_Z) < 2.5,
+    to: 'tunnel',
+    ref: new THREE.Vector3(HALF, 0, CRACK_Z),
+    entry: 'crack',
   });
 
   // A white room waiting in the clearing — walk in and press to go on.

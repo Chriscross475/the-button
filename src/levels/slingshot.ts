@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { GameContext, ControlMode } from '../game/types';
 import { addUpdater } from '../experiences/scheduler';
 import { createAsset, trainStrike } from '../assets';
-import { groundPlane, hideRoomShell } from './scaffold';
+import { groundPlane, hideRoomShell, walkThroughPortal } from './scaffold';
 import { registerInteractable } from '../interactables/system';
 import { whoosh, thunder, trainHorn, pop, thud, click } from '../audio/sfx';
 import { defineCombine } from '../game/combine';
@@ -361,17 +361,11 @@ export function revealSlingshot(ctx: GameContext): void {
 
   // Walk into the 2-track tunnel (the −Z one) and you pass through to the tunnel
   // level — it's the same tunnel, entered from the slingshot end.
-  let leftToTunnel = false;
-  addUpdater(() => {
-    if (leftToTunnel) return true;
-    const p = ctx.playerPos();
-    if (p.z < -(MOUTH + 2) && Math.abs(p.x) < 2.6) {
-      leftToTunnel = true;
-      // Arrive down the tunnel run near the cabin (≈ z 40), facing in.
-      ctx.advanceTo('tunnel', new THREE.Vector3(0, 0, p.z - 42), 'slingshot');
-      return true;
-    }
-    return false;
+  walkThroughPortal(ctx, {
+    zone: (p) => p.z < -(MOUTH + 2) && Math.abs(p.x) < 2.6,
+    to: 'tunnel',
+    ref: new THREE.Vector3(0, 0, -(MOUTH + 44)),
+    entry: 'slingshot',
   });
 
   ctx.narrate(
