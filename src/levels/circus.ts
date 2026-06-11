@@ -56,13 +56,21 @@ export function revealCircus(ctx: GameContext): void {
   floor.position.y = 0.02;
   floor.receiveShadow = true;
   root.add(floor);
-  // A gap in the tent wall on the −X side (angle π), where the walkway exits.
-  const wall = new THREE.Mesh(
-    new THREE.CylinderGeometry(R, R, 22, 48, 1, true, Math.PI + 0.34, Math.PI * 2 - 0.68),
-    new THREE.MeshStandardMaterial({ map: stripeTexture(), side: THREE.BackSide, roughness: 0.95 }),
-  );
-  wall.position.y = 11;
-  root.add(wall);
+  // Tent wall with TWO openings: −X (the elevated walkway out to the reward
+  // room) and −Z (the ground-level path to the no-reward room). Built as the two
+  // arcs of wall BETWEEN those gaps. NOTE the cylinder's angle runs
+  // x = r·sin θ, z = r·cos θ — so θ = 3π/2 is −X and θ = π is −Z. (An earlier
+  // version put the gap at θ = π expecting −X, so the opening sat a quarter-turn
+  // off and the walkway speared through solid wall.)
+  const wallMat = new THREE.MeshStandardMaterial({ map: stripeTexture(), side: THREE.BackSide, roughness: 0.95 });
+  const GAP = 0.34; // half-width of each opening (radians)
+  const wallArc = (thetaStart: number, thetaLength: number) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 22, 48, 1, true, thetaStart, thetaLength), wallMat);
+    m.position.y = 11;
+    root.add(m);
+  };
+  wallArc(Math.PI + GAP, Math.PI / 2 - 2 * GAP);         // −Z gap → −X gap (short arc)
+  wallArc(Math.PI * 1.5 + GAP, Math.PI * 1.5 - 2 * GAP); // −X gap → −Z gap (the long way round)
   const roof = new THREE.Mesh(
     new THREE.ConeGeometry(R + 1.2, 9, 48, 1, true),
     new THREE.MeshStandardMaterial({ map: stripeTexture(), side: THREE.BackSide, roughness: 0.95 }),
@@ -126,9 +134,14 @@ export function revealCircus(ctx: GameContext): void {
   const Y = TOP.H;
   const walk: THREE.Mesh[] = [];
   const segMat = new THREE.MeshStandardMaterial({ color: 0xcfd2da, roughness: 0.9 });
+  // The segments (and the top platform) all share the walkway height, so where
+  // they overlap their top faces were coplanar and z-fought hard. Lift each piece
+  // a hair above the previous (~1 cm) so at every overlap one is cleanly on top.
+  let segLift = 0.012;
   const seg = (minX: number, maxX: number, minZ: number, maxZ: number) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(maxX - minX, 0.3, maxZ - minZ), segMat);
-    m.position.set((minX + maxX) / 2, Y - 0.15, (minZ + maxZ) / 2);
+    m.position.set((minX + maxX) / 2, Y - 0.15 + segLift, (minZ + maxZ) / 2);
+    segLift += 0.012;
     root.add(m);
     walk.push(m);
   };
@@ -147,7 +160,22 @@ export function revealCircus(ctx: GameContext): void {
     root.add(pil);
   }
 
-  // ── Regions: floor + each pad + the top + walkway + exit ──
+  // ── Second exit: the ground-level, NO-REWARD way out. Through the −Z gap at
+  //    the back of the tent a short sawdust path leads to a plain white room.
+  //    No climb, no unicycle — just a quieter exit for anyone who skips the top. ──
+  const GROUND_Z = -22;
+  const groundPath = new THREE.Mesh(
+    new THREE.PlaneGeometry(6, 13),
+    // sits a touch above the sawdust floor + the room floor so neither z-fights it
+    new THREE.MeshStandardMaterial({ color: 0x6b5836, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
+  );
+  groundPath.rotation.x = -Math.PI / 2;
+  groundPath.position.set(0, 0.04, -14.5);
+  groundPath.receiveShadow = true;
+  root.add(groundPath);
+  const groundBounds = buildExitRoom(ctx, { center: new THREE.Vector3(0, 0, GROUND_Z), facing: 'posZ' });
+
+  // ── Regions: floor + each pad + the top + walkway + both exits ──
   const regions = [
     { minX: -R, maxX: R, minZ: -R, maxZ: R, floorY: 0 },
     ...pads.map((p) => ({ minX: p.x - 1.5, maxX: p.x + 1.5, minZ: p.z - 1.5, maxZ: p.z + 1.5, floorY: p.H })),
@@ -156,6 +184,8 @@ export function revealCircus(ctx: GameContext): void {
     { minX: -18, maxX: -16, minZ: -1, maxZ: 9, floorY: Y },
     { minX: -30, maxX: -16, minZ: 7, maxZ: 9, floorY: Y }, // extends INTO the room for a generous seam
     exitBounds,
+    { minX: -3, maxX: 3, minZ: -21, maxZ: -8, floorY: 0 }, // ground path out the −Z back
+    groundBounds,
   ];
   ctx.setRegions(regions);
 
