@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import type { GameContext } from '../game/types';
 import { buildExitRoom } from './exit-room';
 import { addUpdater } from '../experiences/scheduler';
-import { whoosh, pop, thud } from '../audio/sfx';
-import { type Carryable, type CombineTarget } from '../game/combine';
+import { pop, thud } from '../audio/sfx';
 import { createAsset } from '../assets';
 import { spawnDuck } from '../objects/duck';
+import { spawnAxe } from '../objects/axe';
 
 // A LEVEL — the forest. The walls topple and you're on a wide outdoor plain
 // dotted with trees, under a bright sky. Resolution: find the clearing with the
@@ -17,14 +17,7 @@ import { spawnDuck } from '../objects/duck';
 const HALF = 38;
 const EXIT = new THREE.Vector3(-24, 0, -30); // cabin: far + off to the side, so you look around
 
-// Axe carry/swing/throw constants (mirrors src/experiences/axe.ts).
-const SWING_DUR = 0.35;
-const THROW_BASE = 9;
-const THROW_CHARGE = 9;
-const THROW_UP = 2.5;
-const GRAVITY = 14;
-const GROUND_Y = 0.2;
-const CHOP_REACH = 2.6;
+const CHOP_REACH = 2.6; // how near a swing must land to a tree to fell it
 
 interface Tree {
   group: THREE.Object3D;
@@ -199,123 +192,32 @@ export function revealForest(ctx: GameContext): void {
     root.add(rock);
   }
 
-  // The axe-in-trunk COMPOSITION: a stump with an axe embedded. Orient it so its
-  // front (local +Z) faces the player, then detach the axe to the level root so
-  // it can be carried in world space (the stump stays put).
-  const comp = createAsset('axe-in-trunk');
-  comp.position.copy(stumpPos);
-  comp.rotation.y = Math.atan2(player.x - stumpPos.x, player.z - stumpPos.z);
-  root.add(comp);
-  comp.updateWorldMatrix(true, true);
-  const axeGroup = comp.getObjectByName('axe') as THREE.Group;
-  root.attach(axeGroup); // keep its embedded world pose, but parent to root
-  ctx.addObstacle({ x: stumpPos.x, z: stumpPos.z, radius: 0.45 });
-
-  // ── The axe carryable (registered with the global carry via ctx) ──
-
-  let swinging = false;
-  let swingT = 0;
-  // Held pose: the axe stands UP (head at top), blade facing forward. (Model is
-  // authored handle=+Y, blade=+X; Ry(90°) turns the blade to face forward.) A
-  // small constant forward lean angles the edge down; the swing arcs it further.
-  const heldGrip = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0));
-  const REST_LEAN = 0.5;
-
-  // Assigned once the cabin's planked door is built — a swing near it breaks the plank.
+  // The axe — the shared object (src/objects/axe.ts). The forest just says what a
+  // swing HITS here: fell the nearest tree (leaving a campfire), and smash the
+  // cabin's planked door. Everything else about the axe (grab, swing animation,
+  // tumbling throw, carrying it onward) lives on the object.
   let tryBreakDoor: (ax: number, az: number) => void = () => {};
-
-  const doSwing = () => {
-    if (swinging) return;
-    swinging = true;
-    swingT = 0;
-    whoosh();
-    ctx.camera.getWorldDirection(fwd);
-    const ax = ctx.camera.position.x + fwd.x * 1.8;
-    const az = ctx.camera.position.z + fwd.z * 1.8;
-    let near: Tree | null = null;
-    let nd = CHOP_REACH;
-    for (const t of trees) {
-      if (t.felled) continue;
-      const d = Math.hypot(t.x - ax, t.z - az);
-      if (d < nd) { nd = d; near = t; }
-    }
-    if (near) {
-      const tree = near;
-      ctx.after(SWING_DUR * 500, () => {
-        if (tree.felled || !tree.group.parent) return;
-        tree.felled = true;
-        root.remove(tree.group);
-        const fire = createAsset('campfire');
-        fire.position.set(tree.x, 0, tree.z);
-        root.add(fire);
-        const target: CombineTarget = { kind: 'campfire', position: new THREE.Vector3(tree.x, 0, tree.z), radius: 2.2 };
-        ctx.addTarget(target);
-        thud();
-      });
-    }
-    tryBreakDoor(ax, az); // a swing near the cabin's plank smashes it open
-  };
-
-  const axeCarry: Carryable = {
-    kind: 'axe',
-    object: axeGroup,
-    heldDist: 0.7, // closer to the camera
-    heldRight: 0.5, // and more to the right
-    heldDrop: 0.4,
-    onGrab: () => {
-      whoosh();
-      pop();
-    },
-    onTap: doSwing,
-    heldUpdate: (dt, obj, camQuat) => {
-      const q = camQuat.clone().multiply(heldGrip);
-      let lean = REST_LEAN; // edge angled down at rest
-      if (swinging) {
-        swingT += dt;
-        lean += Math.sin(Math.min(1, swingT / SWING_DUR) * Math.PI) * 1.9; // chop arc
-        if (swingT >= SWING_DUR) swinging = false;
+  spawnAxe(ctx, stumpPos, {
+    onSwing: (ax, az) => {
+      let near: Tree | null = null;
+      let nd = CHOP_REACH;
+      for (const t of trees) {
+        if (t.felled) continue;
+        const d = Math.hypot(t.x - ax, t.z - az);
+        if (d < nd) { nd = d; near = t; }
       }
-      // Lean/chop the head forward+down about the camera's right axis.
-      const axis = new THREE.Vector3(1, 0, 0).applyQuaternion(camQuat);
-      q.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, -lean));
-      obj.quaternion.copy(q);
+      if (near && near.group.parent) {
+        near.felled = true;
+        root.remove(near.group);
+        const fire = createAsset('campfire');
+        fire.position.set(near.x, 0, near.z);
+        root.add(fire);
+        ctx.addTarget({ kind: 'campfire', position: new THREE.Vector3(near.x, 0, near.z), radius: 2.2 });
+        thud();
+      }
+      tryBreakDoor(ax, az); // a swing near the cabin's plank smashes it open
     },
-    onThrow: (charge) => {
-      ctx.camera.getWorldDirection(fwd);
-      const speed = THROW_BASE + charge * THROW_CHARGE;
-      const v = fwd.clone().multiplyScalar(speed).add(new THREE.Vector3(0, THROW_UP, 0));
-      // Throw frame: blade (+X) faces forward, the axe tumbles end-over-end in
-      // the vertical plane of the throw (spin axis = horizontal, ⟂ to forward).
-      const f = new THREE.Vector3(fwd.x, 0, fwd.z).normalize();
-      const r = new THREE.Vector3(f.z, 0, -f.x); // spin axis
-      const negR = r.clone().negate();
-      const up = new THREE.Vector3(0, 1, 0);
-      const base = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(f, up, negR));
-      // Final resting pose: head/blade dives forward INTO the ground, handle up-back.
-      const downFwd = new THREE.Vector3(f.x, -1.6, f.z).normalize();
-      const stuckX = new THREE.Vector3().crossVectors(downFwd, negR).normalize();
-      const stuck = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(stuckX, downFwd, negR));
-      let spin = 0;
-      whoosh();
-      // Re-grabbable after it lands: remove while flying, re-add on land.
-      ctx.removeCarryable(axeCarry);
-      addUpdater((dt) => {
-        v.y -= GRAVITY * dt;
-        axeGroup.position.addScaledVector(v, dt);
-        spin += dt * 13; // tumble forward, blade leading
-        axeGroup.quaternion.copy(new THREE.Quaternion().setFromAxisAngle(r, spin).multiply(base));
-        if (axeGroup.position.y <= GROUND_Y) {
-          axeGroup.position.y = GROUND_Y;
-          axeGroup.quaternion.copy(stuck); // hacked into the ground, blade forward
-          thud();
-          ctx.addCarryable(axeCarry); // grab + throw again
-          return true;
-        }
-        return false;
-      });
-    },
-  };
-  ctx.addCarryable(axeCarry);
+  });
 
   // ── A few wandering ducks, sparse — the same duck object as everywhere: grab
   //    one to carry it onward, throw it (it bounces off trees/the cabin and
