@@ -277,9 +277,9 @@ export function revealBasketball(ctx: GameContext): void {
       ballMat.emissive.setHex(0xc9912a);
       ballMat.emissiveIntensity = 0.5;
       ballMat.metalness = 0.5;
-      ctx.narrate('Respectable. The ball turns gold in your hands — a keepsake. No basket, though.', 7000, { priority: true });
+      ctx.narrate('Respectable. The ball turns gold in your hands — a keepsake. Off you go, champion.', 7000, { priority: true });
     } else {
-      ctx.narrate('Modest. You keep the ball, at least. A consolation.', 6500, { priority: true });
+      ctx.narrate('Modest. You keep the ball, at least. Try not to lose it on the way out.', 6500, { priority: true });
     }
     // A new button to move on. Pressing it takes your ball WITH you — if it's not
     // already in hand (it's usually sat on the floor after the round), it leaps to
