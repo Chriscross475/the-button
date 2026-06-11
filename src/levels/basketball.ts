@@ -252,6 +252,7 @@ export function revealBasketball(ctx: GameContext): void {
     const r = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.035, 10, 22), new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.5, metalness: 0.4 }));
     r.rotation.x = Math.PI / 2;
     r.position.set(0, 1.3, 0);
+    r.name = 'hoop-rim'; // the Game scores throws that drop through this
     inner.add(r);
     const nm = new THREE.MeshBasicMaterial({ color: 0xe8e8e8 });
     for (let i = 0; i < 8; i++) {
@@ -260,6 +261,18 @@ export function revealBasketball(ctx: GameContext): void {
       seg.position.set(Math.cos(a) * 0.27, 1.12, Math.sin(a) * 0.27);
       inner.add(seg);
     }
+    // Floating score label above the basket (the Game redraws it on each score).
+    const lc = document.createElement('canvas');
+    lc.width = 128;
+    lc.height = 64;
+    const lctx = lc.getContext('2d')!;
+    const ltex = new THREE.CanvasTexture(lc);
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: ltex, transparent: true }));
+    label.name = 'hoop-score-label';
+    label.scale.set(1.1, 0.55, 1);
+    label.position.set(0, 2.5, 0); // above the backboard
+    label.userData = { canvas: lc, ctx: lctx, tex: ltex };
+    g.add(label);
     return g;
   }
 
@@ -272,9 +285,12 @@ export function revealBasketball(ctx: GameContext): void {
     if (points >= REWARD_BASKET) {
       // Top tier — keep the basket: a two-legged hoop that waddles after you,
       // turned to face you so you can keep tossing the ball into it.
-      ctx.narrate('A genuine display. You keep the basket — it follows you now — and the ball. Both earned.', 8000, { priority: true });
+      ctx.narrate('A genuine display. You keep the basket — it follows you now — and the ball. Both earned. Keep sinking them; it is counting.', 8000, { priority: true });
       root.remove(hoop);
-      ctx.setCompanion(makeWalkingBasket(), 0);
+      const basket = makeWalkingBasket();
+      ctx.setCompanion(basket, 0);
+      const rim = basket.getObjectByName('hoop-rim');
+      if (rim) ctx.setScoringHoop(rim, 0.32); // score throws into it from here on (resets to 0)
     } else if (points >= REWARD_GOLD) {
       // Mid tier — the ball turns gold.
       ballMat.color.setHex(0xffd23f);

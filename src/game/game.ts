@@ -24,7 +24,7 @@ import { isDesktopLike } from '../controls/platform';
 import { updateInteractPrompt } from '../ui/interact-prompt';
 import { narrate } from '../ui/narrator';
 import { createCarry, type Carry } from './combine';
-import { ensureAudio, thud } from '../audio/sfx';
+import { ensureAudio, thud, sparkle } from '../audio/sfx';
 import { primeTts, onVoiceReady } from '../audio/tts';
 import { showMainMenu } from '../ui/main-menu';
 import { createAsset } from '../assets';
@@ -111,6 +111,13 @@ export class Game {
   private companionBaseY = 0;
   private readonly tapRay = new THREE.Raycaster();
   private readonly tapNdc = new THREE.Vector2();
+  // Scoring hoop (the kept basket): thrown projectiles dropping through it score.
+  private scoringRim: THREE.Object3D | null = null;
+  private scoringRimRadius = 0.34;
+  private scoringLabel: THREE.Sprite | null = null;
+  private hoopScore = 0;
+  private readonly hoopPrevY = new Map<THREE.Object3D, number>();
+  private readonly rimWorld = new THREE.Vector3();
   private controlMode: ControlMode | null = null; // e.g. operating the slingshot
   // The unicycle, shown under the camera (visible when you look down).
   private wheelMesh: THREE.Group | null = null;
@@ -181,6 +188,17 @@ export class Game {
         this.companionBaseY = baseY;
         this.companionFollow = false;
         this.companionStay = false;
+        // a new companion isn't a scoring hoop unless setScoringHoop says so
+        this.scoringRim = null;
+        this.scoringLabel = null;
+      },
+      setScoringHoop: (rim, radius = 0.34) => {
+        this.scoringRim = rim;
+        this.scoringRimRadius = radius;
+        this.hoopScore = 0;
+        this.hoopPrevY.clear();
+        this.scoringLabel = (this.companion?.getObjectByName('hoop-score-label') as THREE.Sprite) ?? null;
+        this.drawHoopLabel();
       },
       setWheel: (on) => this.setWheelMode(on),
       setControlMode: (cm) => {
@@ -601,6 +619,7 @@ export class Game {
 
     this.carry.tick(dt, this.mode === 'play' && this.started && !this.paused && !inControl);
     this.updateCompanion(dt);
+    this.updateHoopScore();
     this.updateWheelVisual();
 
     // World keeps simulating even while dead.
@@ -649,6 +668,48 @@ export class Game {
         c.rotation.z *= Math.max(0, 1 - dt * 8);
       }
     }
+  }
+
+  // A thrown ball/duck dropping through the kept basket's rim scores a point.
+  private updateHoopScore(): void {
+    const rim = this.scoringRim;
+    if (!rim) return;
+    rim.getWorldPosition(this.rimWorld);
+    for (const obj of this.carry.looseObjects()) {
+      const y = obj.position.y;
+      const py = this.hoopPrevY.get(obj);
+      this.hoopPrevY.set(obj, y);
+      if (py === undefined) continue;
+      // crossed the rim plane on the way DOWN, within the rim's (forgiving) radius
+      if (py > this.rimWorld.y && y <= this.rimWorld.y) {
+        const d = Math.hypot(obj.position.x - this.rimWorld.x, obj.position.z - this.rimWorld.z);
+        if (d < this.scoringRimRadius * 1.4) {
+          this.hoopScore++;
+          this.drawHoopLabel();
+          sparkle();
+        }
+      }
+    }
+  }
+
+  // Redraw the floating score label that sits above the basket.
+  private drawHoopLabel(): void {
+    const label = this.scoringLabel;
+    if (!label) return;
+    const ud = label.userData as { canvas?: HTMLCanvasElement; ctx?: CanvasRenderingContext2D; tex?: THREE.CanvasTexture };
+    if (!ud.canvas || !ud.ctx || !ud.tex) return;
+    const { canvas, ctx } = ud;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = 'bold 46px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillText(String(this.hoopScore), cx + 2, cy + 3);
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText(String(this.hoopScore), cx, cy);
+    ud.tex.needsUpdate = true;
   }
 
   // The unicycle: movement mode + a visual pinned under the camera.

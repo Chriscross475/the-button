@@ -128,6 +128,10 @@ export interface GameContext {
    *  follow + faces it at the player. `baseY` floats it at a height (e.g. a
    *  basket at chest level you can still toss into); default ground level. */
   setCompanion: (mesh: THREE.Object3D, baseY?: number) => void;
+  /** Mark a rim (a child of the current companion) as a SCORING hoop: thrown
+   *  balls/ducks dropping through it score a point, shown on a label above the
+   *  basket. Resets the score to 0. Pass null to stop scoring. */
+  setScoringHoop: (rim: THREE.Object3D | null, radius?: number) => void;
   /** The unicycle: hands-free movement that's faster but slides (inertia).
    *  Reset on every level change. */
   setWheel: (on: boolean) => void;

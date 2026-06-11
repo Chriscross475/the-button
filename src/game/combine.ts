@@ -92,6 +92,9 @@ export interface Carry {
   enterLevel(): void;
   /** Drop EVERYTHING, including persistent items (used on death). */
   dropAll(): void;
+  /** The objects currently in flight (thrown projectiles), for hit-testing
+   *  against e.g. a scoring hoop. */
+  looseObjects(): THREE.Object3D[];
   /** The kind held in a hand, or null. */
   inHand(side: 'left' | 'right'): string | null;
   /** True if either hand holds an item of this kind. */
@@ -333,6 +336,7 @@ export function createCarry(
         label(side);
       }
     },
+    looseObjects: () => loose.map((l) => l.object),
     inHand: (side) => hands[side].item?.kind ?? null,
     holding: (kind) => hands.left.item?.kind === kind || hands.right.item?.kind === kind,
     consume: (kind) => {
