@@ -78,8 +78,17 @@ export interface GameContext {
    *  from it (the room transforms around them instead of teleporting them). */
   advance: (buttonPos?: THREE.Vector3) => void;
   /** Like advance, but transition to a SPECIFIC experience (e.g. stepping
-   *  through a broken-wall hole into the forest). */
-  advanceTo: (expId: string, buttonPos?: THREE.Vector3) => void;
+   *  through a broken-wall hole into the forest). `entry` names the portal you
+   *  came through (e.g. 'slingshot', 'crack') — the destination level reads
+   *  `ctx.entry` and uses `spawnAt` to put you stepping out of its matching one. */
+  advanceTo: (expId: string, buttonPos?: THREE.Vector3, entry?: string) => void;
+  /** The portal the player arrived through this transition, or null. */
+  entry: string | null;
+  /** Place the player at a portal spawn — GROUND position (eye height is added)
+   *  + yaw in radians (0 faces −Z, π faces +Z, π/2 faces −X). Overrides the
+   *  default advance placement. Call from a level's reveal when `ctx.entry`
+   *  matches one of its tunnels/cracks. */
+  spawnAt: (ground: THREE.Vector3, yaw: number) => void;
   /** Launch the player ballistically — the train. Velocity in m/s. */
   launchPlayer: (vel: THREE.Vector3) => void;
   /** Kill the player: spectator death, then restart in the hub. */

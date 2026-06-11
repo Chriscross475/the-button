@@ -353,6 +353,12 @@ export function revealSlingshot(ctx: GameContext): void {
   // tunnel and the only way out is walking back down it.
   ctx.setRegions([{ minX: -34, maxX: 34, minZ: -34, maxZ: 34, floorY: 0 }]);
 
+  // Arriving from the tunnel level: step OUT of the −Z (2-track) tunnel mouth
+  // into the yard, facing in (+Z), so it reads as one continuous passage.
+  if (ctx.entry === 'tunnel') {
+    ctx.spawnAt(new THREE.Vector3(0, 0, -(MOUTH - 3)), Math.PI);
+  }
+
   // Walk into the 2-track tunnel (the −Z one) and you pass through to the tunnel
   // level — it's the same tunnel, entered from the slingshot end.
   let leftToTunnel = false;
@@ -362,7 +368,7 @@ export function revealSlingshot(ctx: GameContext): void {
     if (p.z < -(MOUTH + 2) && Math.abs(p.x) < 2.6) {
       leftToTunnel = true;
       // Arrive down the tunnel run near the cabin (≈ z 40), facing in.
-      ctx.advanceTo('tunnel', new THREE.Vector3(0, 0, p.z - 42));
+      ctx.advanceTo('tunnel', new THREE.Vector3(0, 0, p.z - 42), 'slingshot');
       return true;
     }
     return false;

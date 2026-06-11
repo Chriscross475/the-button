@@ -113,6 +113,8 @@ export class Game {
   private wheelMesh: THREE.Group | null = null;
   private wheelSpinG: THREE.Object3D | null = null;
   private wheelPrev = new THREE.Vector2();
+  private currentEntry: string | null = null; // the portal the player came through this transition
+  private spawnHandled = false; // a level placed the player itself (emerge-from-portal)
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -152,7 +154,11 @@ export class Game {
       launchPlayer: (vel) => this.launch(vel),
       die: (cause) => this.die(cause),
       advance: (buttonPos) => this.advance(buttonPos),
-      advanceTo: (expId, buttonPos) => this.advanceTo(expId, buttonPos),
+      advanceTo: (expId, buttonPos, entry) => this.advanceTo(expId, buttonPos, entry),
+      get entry() {
+        return game.currentEntry;
+      },
+      spawnAt: (eye, yaw) => this.spawnAt(eye, yaw),
       openRoom: (opts) => this.current?.openRoom?.(opts),
       setRoomButton: (onPress) => this.current?.setButtonAction?.(onPress),
       sinkRoomButton: () => this.current?.sinkButton?.(),
@@ -350,7 +356,9 @@ export class Game {
   }
 
   // Like advance, but to a specific experience (e.g. through a broken-wall hole).
-  private advanceTo(expId: string, buttonPos?: THREE.Vector3): void {
+  // `entry` names the portal used — the destination reads ctx.entry to emerge you
+  // from its matching tunnel/crack.
+  private advanceTo(expId: string, buttonPos?: THREE.Vector3, entry?: string): void {
     if (this.pendingLevel) return;
     const exp = getExperience(expId);
     if (!exp) {
@@ -358,10 +366,21 @@ export class Game {
       return;
     }
     setLastExperience(expId); // so the next random pick won't repeat it
-    this.runAdvance(exp, buttonPos);
+    this.runAdvance(exp, buttonPos, entry);
   }
 
-  private runAdvance(exp: Experience | null, buttonPos?: THREE.Vector3): void {
+  // Place the player emerging from a portal (called by a level's reveal when
+  // ctx.entry matches one of its tunnels/cracks); marks the spawn as handled so
+  // runAdvance won't override it with the default offset placement.
+  private spawnAt(ground: THREE.Vector3, yaw: number): void {
+    this.camera.position.set(ground.x, ground.y + CONFIG.PLAYER_HEIGHT, ground.z);
+    setYaw(yaw);
+    setPitch(0);
+    this.camera.rotation.set(0, yaw, 0, 'YXZ');
+    this.spawnHandled = true;
+  }
+
+  private runAdvance(exp: Experience | null, buttonPos?: THREE.Vector3, entry?: string): void {
     const cam = this.camera.position;
     // With a reference button, keep the player's offset from it (the room
     // transforms around them). Without one (e.g. the buttons-grid finale), stand
@@ -374,20 +393,23 @@ export class Game {
     const oldZ = cam.z;
     const yaw = getYaw();
     const pitch = getPitch();
+    this.currentEntry = entry ?? null; // the level reads ctx.entry during run()…
+    this.spawnHandled = false; // …and may call ctx.spawnAt to emerge from its portal
     this.loadLevel('hub');
     exp?.run(this.ctx);
-    // Place the player at the same offset from the new (hub) button at (0,0,-2).
-    const newX = 0 + offX;
-    const newZ = -2 + offZ;
-    this.camera.position.set(newX, CONFIG.PLAYER_HEIGHT, newZ);
-    setYaw(yaw);
-    setPitch(pitch);
+    if (!this.spawnHandled) {
+      // Default: same offset from the new (hub) button at (0,0,-2).
+      this.camera.position.set(0 + offX, CONFIG.PLAYER_HEIGHT, -2 + offZ);
+      setYaw(yaw);
+      setPitch(pitch);
+    }
+    this.currentEntry = null; // consumed
     // A companion (the baby wolf, the basket) is a scene object — shift it by the
     // same world delta the player just moved, so it stays right beside you in the
     // new level instead of being stranded where the old level was.
     if (this.companion) {
-      this.companion.position.x += newX - oldX;
-      this.companion.position.z += newZ - oldZ;
+      this.companion.position.x += this.camera.position.x - oldX;
+      this.companion.position.z += this.camera.position.z - oldZ;
     }
   }
 

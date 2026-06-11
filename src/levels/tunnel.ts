@@ -106,6 +106,13 @@ export function revealTunnel(ctx: GameContext): void {
   ];
   ctx.setRegions(baseRegions);
 
+  // Arriving from a connected portal: step OUT of the matching opening, facing in.
+  if (ctx.entry === 'slingshot') {
+    ctx.spawnAt(new THREE.Vector3(0, 0, WALL_T2 + 3), 0); // out of the far tunnel (tunnel 2), facing −Z down the run
+  } else if (ctx.entry === 'crack') {
+    ctx.spawnAt(new THREE.Vector3(40, 0, 12), Math.PI / 2); // out of the cracked wall on +X, facing −X into the run
+  }
+
   // Walls kill from the GROUND up to the roof, so a too-low launch that would
   // slip under the cabin between the pillars still splats against it. (The open
   // roof is the interior, away from these edge slabs, so the far tunnel's
@@ -298,7 +305,7 @@ export function revealTunnel(ctx: GameContext): void {
       const p = ctx.playerPos();
       if (p.x > crackX + 1.6 && Math.abs(p.z - crackZ) < 2.2) {
         gone = true;
-        ctx.advanceTo('forest', new THREE.Vector3(crackX, 0, crackZ)); // step through → the forest
+        ctx.advanceTo('forest', new THREE.Vector3(crackX, 0, crackZ), 'crack'); // step through → the forest, out its crack
         return true;
       }
       return false;
@@ -323,7 +330,7 @@ export function revealTunnel(ctx: GameContext): void {
     const p = ctx.playerPos();
     if (p.z > WALL_T2 + 5 && Math.abs(p.x) < 2.4) {
       toSling = true;
-      ctx.advanceTo('slingshot', new THREE.Vector3(0, 0, WALL_T2 + 6));
+      ctx.advanceTo('slingshot', new THREE.Vector3(0, 0, WALL_T2 + 6), 'tunnel');
       return true;
     }
     return false;
