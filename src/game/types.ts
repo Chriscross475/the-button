@@ -38,13 +38,18 @@ export interface RoomOpenOpts {
   keepButton?: boolean;
 }
 
-// The context handed to every level and every experience. It's the whole API
-// surface for "affect the world": spawn things, move between levels, launch or
-// kill the player, talk. The Game controller owns the single instance and
-// repoints `bounds` whenever the active level changes.
+// ─────────────────────────────────────────────────────────────────────────────
+// The GameContext is split into 9 themed sub-interfaces. Each is exposed TWO
+// ways on the live ctx:
+//   • flat (legacy):    ctx.narrate(...) , ctx.advanceTo(...)
+//   • namespaced (new): ctx.narration.narrate(...) , ctx.nav.advanceTo(...)
+// Both reach the SAME function — namespaces are organization, not new behaviour.
+// Keep both forever (keep-legacy rule). attachNamespaces() (ctx-namespaces.ts)
+// wires the namespaces to the flat members at construction.
+// ─────────────────────────────────────────────────────────────────────────────
 
-export interface GameContext {
-  // ── World & frame ──
+/** World & frame. */
+export interface WorldCtx {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   /** Root group of the ACTIVE level — parent things here so they dispose with
@@ -52,8 +57,10 @@ export interface GameContext {
   levelRoot: THREE.Object3D;
   /** Live player position (do not mutate). */
   playerPos: () => THREE.Vector3;
+}
 
-  // ── Narration & timing ──
+/** Narration & timing. */
+export interface NarrationCtx {
   /** Narrator line (shown + spoken). `priority` clears the queue + interrupts
    *  the current line so a timing-critical reaction plays immediately.
    *  `interruptible` marks a low-priority line the next one replaces at once. */
@@ -62,8 +69,10 @@ export interface GameContext {
    *  change — use this instead of window.setTimeout for anything that touches
    *  the world, or the callback fires into the NEXT level. */
   after: (ms: number, fn: () => void) => void;
+}
 
-  // ── Transitions & portals (move between levels) ──
+/** Transitions & portals (move between levels). */
+export interface NavCtx {
   /** Transition to a registered level by id (fade out/in). */
   goToLevel: (id: string) => void;
   /** Shortcut for goToLevel('hub'). */
@@ -85,8 +94,10 @@ export interface GameContext {
    *  default advance placement. Call from a level's reveal when `ctx.entry`
    *  matches one of its tunnels/cracks. */
   spawnAt: (ground: THREE.Vector3, yaw: number) => void;
+}
 
-  // ── The room shell + its button ──
+/** The room shell + its button. */
+export interface RoomCtx {
   /** Open the current room in place — topple its walls, float the ceiling —
    *  revealing the environment around it. `walls` can be `true` (all),
    *  `false` (none), or a list of sides to drop (e.g. ['back'] for just the
@@ -101,8 +112,10 @@ export interface GameContext {
   /** Spawn another button in the active level; uses the level's default press
    *  handler (in the hub: run a random experience). */
   spawnButton: (pos: THREE.Vector3) => void;
+}
 
-  // ── Movement region & collision ──
+/** Movement region & collision. */
+export interface RegionCtx {
   /** Active level's collision bounds (live — reflects setBounds/setRegions). */
   readonly bounds: RoomBounds;
   /** Replace the active movement region with a single rectangle. */
@@ -122,8 +135,10 @@ export interface GameContext {
   /** Boxes that kill the player mid-flight on contact (e.g. a wall you slam into
    *  when launched from too close). Leaves the chalk outline ON the wall. */
   setFlightWalls: (walls: FlightWall[]) => void;
+}
 
-  // ── Player physics & death ──
+/** Player physics & death. */
+export interface PhysicsCtx {
   /** Launch the player ballistically — the train. Velocity in m/s. */
   launchPlayer: (vel: THREE.Vector3) => void;
   /** Kill the player: spectator death, then restart in the hub. */
@@ -132,8 +147,10 @@ export interface GameContext {
   isAirborne: () => boolean;
   /** True while dead (awaiting restart). */
   isDead: () => boolean;
+}
 
-  // ── Carry & combine (the GLOBAL dual-hand carry) ──
+/** Carry & combine (the GLOBAL dual-hand carry). */
+export interface CarryCtx {
   /** Register a level's grabbable items / combine targets; the Game drives grab /
    *  hold / throw / combine and clears the registry on every level change. */
   addCarryable: (c: Carryable) => void;
@@ -152,8 +169,10 @@ export interface GameContext {
    *  floor/wall bounce, then it settles). Lets a kept item's throw physics live
    *  with the object instead of a level's updater. */
   launchProjectile: (object: THREE.Object3D, velocity: THREE.Vector3, opts?: { radius?: number; restitution?: number; gravity?: number; onLand?: (impactSpeed: number) => boolean; onSettle?: () => void }) => void;
+}
 
-  // ── Companions & followers ──
+/** Companions & followers. */
+export interface CompanionsCtx {
   /** A pet/object that follows the player AND survives level transitions (the
    *  baby wolf; the kept basket). Parented to the scene; the Game drives the
    *  follow + faces it at the player. `baseY` floats it at a height (e.g. a
@@ -163,13 +182,55 @@ export interface GameContext {
    *  balls/ducks dropping through it score a point, shown on a label above the
    *  basket. Resets the score to 0. Pass null to stop scoring. */
   setScoringHoop: (rim: THREE.Object3D | null, radius?: number) => void;
+}
 
-  // ── Movement modes ──
+/** Movement modes. */
+export interface ModesCtx {
   /** The unicycle: hands-free movement that's faster but slides (inertia). */
   setWheel: (on: boolean) => void;
   /** Take over camera + input (e.g. operating the slingshot turret). Pass null
    *  to hand control back to normal walking. */
   setControlMode: (cm: ControlMode | null) => void;
+}
+
+/** The flat, legacy API surface — every section's members at the top level.
+ *  ALL existing content uses this and it keeps working forever. The Game builds
+ *  this object literal, then attachNamespaces() adds the namespace views. */
+export interface GameContextFlat
+  extends WorldCtx,
+    NarrationCtx,
+    NavCtx,
+    RoomCtx,
+    RegionCtx,
+    PhysicsCtx,
+    CarryCtx,
+    CompanionsCtx,
+    ModesCtx {}
+
+// The context handed to every level and every experience. It's the whole API
+// surface for "affect the world": spawn things, move between levels, launch or
+// kill the player, talk. The Game controller owns the single instance and
+// repoints `bounds` whenever the active level changes. Available BOTH flat
+// (ctx.narrate) and namespaced (ctx.narration.narrate) — same functions.
+export interface GameContext extends GameContextFlat {
+  /** World & frame — scene, camera, levelRoot, playerPos. */
+  world: WorldCtx;
+  /** Narration & timing — narrate, after. */
+  narration: NarrationCtx;
+  /** Transitions & portals — goToLevel, returnToHub, advance, advanceTo, entry, spawnAt. */
+  nav: NavCtx;
+  /** The room shell + its button — openRoom, setRoomButton, sinkRoomButton, spawnButton. */
+  room: RoomCtx;
+  /** Movement region & collision — bounds, setBounds, setRegions, obstacles, landing, flight walls. */
+  region: RegionCtx;
+  /** Player physics & death — launchPlayer, die, isAirborne, isDead. */
+  physics: PhysicsCtx;
+  /** Carry & combine — carryables, targets, isHolding, consumeHeld, heldKind, putInHand, launchProjectile. */
+  carry: CarryCtx;
+  /** Companions & followers — setCompanion, setScoringHoop. */
+  companions: CompanionsCtx;
+  /** Movement modes — setWheel, setControlMode. */
+  modes: ModesCtx;
 }
 
 export interface LevelInstance {

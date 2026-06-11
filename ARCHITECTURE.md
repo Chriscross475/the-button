@@ -141,24 +141,31 @@ When two levels need the same shape, **add a kit primitive** rather than copy it
 
 ## 4. The GameContext API (`ctx`, see `src/game/types.ts`)
 
-A flat API, but `types.ts` groups it into 9 labeled sections (mirror these when
-you read the source):
-- **World & frame**: `scene`, `camera`, `levelRoot`, `playerPos()`.
-- **Narration & timing**: `narrate(text, holdMs?, { priority?, interruptible? })`;
+Reachable **two ways** — both are live and both call the *same* function, so use
+whichever reads better and never worry about keeping them in sync:
+- **flat** (the original, used everywhere): `ctx.narrate(...)`, `ctx.advanceTo(...)`.
+- **namespaced** (organized by section): `ctx.narration.narrate(...)`,
+  `ctx.nav.advanceTo(...)`.
+
+`attachNamespaces()` (`src/game/ctx-namespaces.ts`) wires the namespaces onto the
+flat object at construction; live props (`levelRoot`/`bounds`/`entry`) forward
+through getters so they never go stale. The 9 sections (`ctx.<namespace>` → members):
+- **`world`** — World & frame: `scene`, `camera`, `levelRoot`, `playerPos()`.
+- **`narration`** — Narration & timing: `narrate(text, holdMs?, { priority?, interruptible? })`;
   `after(ms, fn)` — a delayed callback a level transition cancels automatically.
   **Never use `window.setTimeout` in content** — it outlives the level and fires
   into the next one.
-- **Transitions & portals**: `goToLevel(id)`, `returnToHub()`, `advance(buttonPos?)`,
+- **`nav`** — Transitions & portals: `goToLevel(id)`, `returnToHub()`, `advance(buttonPos?)`,
   `advanceTo(id, buttonPos?, entry?)`, `entry`, `spawnAt(ground, yaw)`.
-- **The room shell + button**: `openRoom(opts?)`, `setRoomButton(fn)`,
+- **`room`** — The room shell + button: `openRoom(opts?)`, `setRoomButton(fn)`,
   `sinkRoomButton()`, `spawnButton(pos)`.
-- **Movement region & collision**: `bounds`, `setBounds`, `setRegions`,
+- **`region`** — Movement region & collision: `bounds`, `setBounds`, `setRegions`,
   `addObstacle/removeObstacle`, `setLanding`, `setFlightWalls`.
-- **Player physics & death**: `launchPlayer`, `die`, `isAirborne`, `isDead`.
-- **Carry & combine**: `addCarryable/removeCarryable`, `addTarget/removeTarget`,
+- **`physics`** — Player physics & death: `launchPlayer`, `die`, `isAirborne`, `isDead`.
+- **`carry`** — Carry & combine: `addCarryable/removeCarryable`, `addTarget/removeTarget`,
   `isHolding`, `consumeHeld`, `heldKind`, `putInHand`, `launchProjectile`.
-- **Companions & followers**: `setCompanion`, `setScoringHoop`.
-- **Movement modes**: `setWheel`, `setControlMode`.
+- **`companions`** — Companions & followers: `setCompanion`, `setScoringHoop`.
+- **`modes`** — Movement modes: `setWheel`, `setControlMode`.
 
 ---
 

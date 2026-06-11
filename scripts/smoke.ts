@@ -101,6 +101,7 @@ const { allExperiences } = await import('../src/experiences/registry.ts');
 const { clearUpdaters } = await import('../src/experiences/scheduler.ts');
 const { hubLevel } = await import('../src/levels/hub.ts');
 const { assetIds, createAsset } = await import('../src/assets/index.ts');
+const { attachNamespaces } = await import('../src/game/ctx-namespaces.ts');
 
 // ── A recording mock GameContext: real scene/camera/levelRoot, no-op the rest ──
 const scene = new THREE.Scene();
@@ -120,9 +121,13 @@ const ctxBase: any = {
   heldKind: () => null,
   inHand: () => null,
 };
+const NS_NAMES = new Set(['world', 'narration', 'nav', 'room', 'region', 'physics', 'carry', 'companions', 'modes']);
 const ctx: any = new Proxy(ctxBase, {
   get(t, k) {
     if (k in t) return Reflect.get(t, k);
+    // Namespaced access (ctx.nav.advanceTo) forwards to the SAME flat member, so
+    // content authored either way builds under smoke (mirrors attachNamespaces).
+    if (typeof k === 'string' && NS_NAMES.has(k)) return new Proxy({}, { get: (_n, mk) => ctx[mk] });
     return () => undefined; // any other ctx method = recording no-op
   },
 });
@@ -161,6 +166,54 @@ for (const exp of allExperiences()) {
     ok.push(`exp:${exp.id} (${levelRoot.children.length})`);
   } catch (e: any) {
     failures.push(`experience '${exp.id}': threw — ${e?.message || e}`);
+  }
+}
+
+// 4) ctx namespaces delegate to the SAME flat members (ctx.nav.advanceTo ===
+//    ctx.advanceTo) and live props (levelRoot/bounds/entry) forward through
+//    getters. Tests the real attachNamespaces wiring without a browser.
+{
+  const back: any = { levelRoot: new THREE.Group(), entry: null, bounds: { minX: 0 } };
+  const stub = () => undefined;
+  const flat: any = {
+    scene, camera, playerPos: () => camera.position,
+    get levelRoot() { return back.levelRoot; },
+    get bounds() { return back.bounds; },
+    get entry() { return back.entry; },
+    narrate: stub, after: stub, goToLevel: stub, returnToHub: stub, advance: stub,
+    advanceTo: stub, spawnAt: stub, openRoom: stub, setRoomButton: stub, sinkRoomButton: stub,
+    spawnButton: stub, setBounds: stub, setRegions: stub, addObstacle: stub, removeObstacle: stub,
+    setLanding: stub, setFlightWalls: stub, launchPlayer: stub, die: stub, isAirborne: stub,
+    isDead: stub, addCarryable: stub, removeCarryable: stub, addTarget: stub, removeTarget: stub,
+    isHolding: stub, consumeHeld: stub, heldKind: stub, putInHand: stub, launchProjectile: stub,
+    setCompanion: stub, setScoringHoop: stub, setWheel: stub, setControlMode: stub,
+  };
+  const ns = attachNamespaces(flat);
+  const checks: [string, boolean][] = [
+    ['world.scene', ns.world.scene === flat.scene],
+    ['world.playerPos', ns.world.playerPos === flat.playerPos],
+    ['narration.narrate', ns.narration.narrate === flat.narrate],
+    ['nav.advanceTo', ns.nav.advanceTo === flat.advanceTo],
+    ['room.openRoom', ns.room.openRoom === flat.openRoom],
+    ['region.setRegions', ns.region.setRegions === flat.setRegions],
+    ['physics.die', ns.physics.die === flat.die],
+    ['carry.addCarryable', ns.carry.addCarryable === flat.addCarryable],
+    ['carry.launchProjectile', ns.carry.launchProjectile === flat.launchProjectile],
+    ['companions.setScoringHoop', ns.companions.setScoringHoop === flat.setScoringHoop],
+    ['modes.setWheel', ns.modes.setWheel === flat.setWheel],
+  ];
+  // live-prop getters reflect the Game repointing levelRoot/entry/bounds
+  const newRoot = new THREE.Group();
+  back.levelRoot = newRoot;
+  checks.push(['world.levelRoot (live)', ns.world.levelRoot === newRoot]);
+  back.entry = 'crack';
+  checks.push(['nav.entry (live)', ns.nav.entry === 'crack']);
+  const newBounds = { minX: 7 };
+  back.bounds = newBounds;
+  checks.push(['region.bounds (live)', ns.region.bounds === newBounds]);
+  for (const [name, pass] of checks) {
+    if (pass) ok.push(`ns:${name}`);
+    else failures.push(`namespace delegation '${name}': mismatch`);
   }
 }
 

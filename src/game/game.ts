@@ -32,6 +32,7 @@ import { addUpdater, tickUpdaters, clearUpdaters, after } from '../experiences/s
 import { disposeTree } from '../engine/dispose';
 import { spawnPedestalButton } from '../button/pedestal-button';
 import type { GameContext, Level, LevelInstance, ControlMode, FlightWall } from './types';
+import { attachNamespaces } from './ctx-namespaces';
 import type { Experience } from '../experiences/registry';
 import { pick } from '../experiences/util';
 import { pickExperience, getExperience, setLastExperience } from '../experiences/registry';
@@ -139,7 +140,9 @@ export class Game {
 
     const game = this; // for the live `bounds` getter below
     const bootBounds = { minX: -5, maxX: 5, minZ: -5, maxZ: 5 };
-    this.ctx = {
+    // Build the flat API, then attach the namespaced views (ctx.world, ctx.nav,
+    // …) that delegate to these same members. Both forms stay valid forever.
+    this.ctx = attachNamespaces({
       scene: this.scene,
       camera: this.camera,
       levelRoot: new THREE.Group(),
@@ -233,7 +236,7 @@ export class Game {
       },
       isAirborne: () => this.airborne,
       isDead: () => this.mode === 'dead',
-    };
+    });
 
     // The single global carry system. It gets a live view of the active level's
     // obstacles so thrown projectiles bounce off interior walls (e.g. the cabin).
