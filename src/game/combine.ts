@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GameContext } from './types';
 import { createAsset } from '../assets';
 import { setHandItem } from '../ui/hands';
+import { discoverItem, discoverTarget } from '../graph/progress';
 
 // CARRY + COMBINE — the shared interaction framework, now DUAL-HANDED.
 //
@@ -72,6 +73,12 @@ export interface CombineEnv {
 // otherwise it's released after the combine (e.g. a key spent in a lock).
 type Recipe = (held: Carryable, target: CombineTarget, env: CombineEnv) => void | boolean;
 const recipes = new Map<string, Recipe>();
+
+/** Every registered combine as [toolKind, targetKind] — for the content-map
+ *  drift check (a new combine must have nodes/edges on the graph). */
+export function combinePairs(): [string, string][] {
+  return [...recipes.keys()].map((k) => k.split('>') as [string, string]);
+}
 
 /** Register a global combine rule: holding `heldKind` + clicking `targetKind`. */
 export function defineCombine(heldKind: string, targetKind: string, fn: Recipe): void {
@@ -326,6 +333,7 @@ export function createCarry(
     putInHand: (side, c) => {
       hands[side].item = c;
       c.onGrab?.();
+      discoverItem(c.kind); // a crafted/restocked item (cooked duck, ball) counts as found
       label(side);
     },
     enterLevel: () => {
@@ -423,6 +431,7 @@ export function createCarry(
     h.item = target;
     dropLoose(target.object); // if it was still flying, the hand takes over
     target.onGrab?.();
+    discoverItem(target.kind); // light up its node on the content map
     label(side);
   };
 
@@ -481,6 +490,7 @@ export function createCarry(
     const item = h.item;
     const combo = findCombo(item);
     if (combo) {
+      discoverTarget(combo.target.kind); // reveal the thing you combined with
       const keep = combo.recipe(item, combo.target, { ctx, carry, side });
       if (keep !== true && hands[side].item === item) releaseHand(side);
       return;

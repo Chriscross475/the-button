@@ -102,6 +102,8 @@ const { clearUpdaters } = await import('../src/experiences/scheduler.ts');
 const { hubLevel } = await import('../src/levels/hub.ts');
 const { assetIds, createAsset } = await import('../src/assets/index.ts');
 const { attachNamespaces } = await import('../src/game/ctx-namespaces.ts');
+const { combinePairs } = await import('../src/game/combine.ts');
+const { CONTENT_GRAPH, EXP_INDEX, ITEM_INDEX, TARGET_INDEX } = await import('../src/graph/content-graph.ts');
 
 // ── A recording mock GameContext: real scene/camera/levelRoot, no-op the rest ──
 const scene = new THREE.Scene();
@@ -216,6 +218,28 @@ for (const exp of allExperiences()) {
     if (pass) ok.push(`ns:${name}`);
     else failures.push(`namespace delegation '${name}': mismatch`);
   }
+}
+
+// 5) content-graph integrity: every combine's tool + target must resolve to a
+//    node (so a new combine can't silently miss the map), every experience must
+//    have a node, and every edge endpoint must exist.
+{
+  const ids = new Set(CONTENT_GRAPH.nodes.map((n: any) => n.id));
+  const known = (k: string) => ITEM_INDEX.has(k) || TARGET_INDEX.has(k);
+  for (const [tool, target] of combinePairs()) {
+    if (!ITEM_INDEX.has(tool)) failures.push(`graph: combine tool '${tool}' has no item node`);
+    else ok.push(`graph:tool:${tool}`);
+    if (!known(target)) failures.push(`graph: combine target '${target}' has no node (add it to content-graph.ts)`);
+    else ok.push(`graph:target:${target}`);
+  }
+  for (const exp of allExperiences()) {
+    if (!EXP_INDEX.has(exp.id)) failures.push(`graph: experience '${exp.id}' has no node`);
+  }
+  for (const e of CONTENT_GRAPH.edges) {
+    if (!ids.has(e.from)) failures.push(`graph: edge from unknown node '${e.from}'`);
+    if (!ids.has(e.to)) failures.push(`graph: edge to unknown node '${e.to}'`);
+  }
+  ok.push('graph:integrity');
 }
 
 // ── Report ──

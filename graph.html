@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#15151a" />
+    <title>The Button — Map</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #14141a; color: #e8e8ec;
+        font-family: Georgia, 'Times New Roman', serif; }
+      #map { position: fixed; inset: 0; touch-action: none; cursor: grab; }
+      #map.dragging { cursor: grabbing; }
+      svg { width: 100%; height: 100%; display: block; }
+
+      /* Top bar */
+      #bar { position: fixed; top: 0; left: 0; right: 0; height: 52px; display: flex; align-items: center;
+        gap: 16px; padding: 0 16px; background: linear-gradient(#1c1c24cc, #1c1c2400);
+        z-index: 5; pointer-events: none; }
+      #bar > * { pointer-events: auto; }
+      #title { font-size: 19px; letter-spacing: 0.04em; }
+      #count { font-size: 13px; color: #9a9aa6; letter-spacing: 0.1em; text-transform: uppercase; }
+      .btn { font: inherit; font-size: 13px; letter-spacing: 0.06em; color: #d8d8e0; background: #2a2a34;
+        border: 1px solid #3a3a46; border-radius: 7px; padding: 7px 12px; cursor: pointer; }
+      .btn:hover { background: #34343f; }
+      .btn.on { background: #4a6fa5; border-color: #5a82bd; color: #fff; }
+      #back { margin-left: auto; text-decoration: none; }
+
+      /* Legend */
+      #legend { position: fixed; left: 14px; bottom: 14px; z-index: 5; background: #1b1b22dd;
+        border: 1px solid #2e2e38; border-radius: 9px; padding: 10px 12px; font-size: 12px; line-height: 1.9; }
+      #legend .row { display: flex; align-items: center; gap: 8px; }
+      #legend .dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+      #legend .ln { width: 16px; height: 0; border-top: 2px solid; flex: 0 0 auto; }
+
+      /* Details panel */
+      #panel { position: fixed; right: 14px; top: 64px; width: 300px; max-width: calc(100vw - 28px);
+        z-index: 5; background: #1b1b22ee; border: 1px solid #2e2e38; border-radius: 11px;
+        padding: 16px 18px; display: none; }
+      #panel.show { display: block; }
+      #panel .kind { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: #9a9aa6; }
+      #panel h2 { font-size: 21px; margin: 4px 0 8px; }
+      #panel .note { font-size: 14px; line-height: 1.5; color: #cdcdd6; font-style: italic; }
+      #panel .links { margin-top: 12px; font-size: 13px; color: #b6b6c2; line-height: 1.7; }
+      #panel .links b { color: #e8e8ec; font-style: normal; }
+      #panel .mystery { color: #8a8a96; font-style: italic; }
+      #hint { position: fixed; right: 14px; bottom: 14px; z-index: 4; font-size: 12px; color: #76767f;
+        text-align: right; line-height: 1.6; }
+      @media (max-width: 620px) { #panel { width: calc(100vw - 28px); } #legend { font-size: 11px; } }
+    </style>
+  </head>
+  <body>
+    <div id="map"><svg id="svg"></svg></div>
+    <div id="bar">
+      <span id="title">The Map</span>
+      <span id="count"></span>
+      <button class="btn" id="reveal">Reveal all</button>
+      <button class="btn" id="reset">Reset</button>
+      <a class="btn" id="back" href="./">↩ Back to the button</a>
+    </div>
+    <div id="legend"></div>
+    <div id="panel"></div>
+    <div id="hint">drag to pan · scroll to zoom · drag a node to move it<br />tap a node for details</div>
+    <script type="module" src="/src/graph/page.ts"></script>
+  </body>
+</html>

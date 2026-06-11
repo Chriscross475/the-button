@@ -8,6 +8,7 @@ import { setCounter, hideCounter } from '../ui/counter';
 import { defineCombine, type Carryable, type CombineTarget } from '../game/combine';
 import { createAsset } from '../assets';
 import { spawnFeathers } from '../assets/effects';
+import { discover } from '../graph/progress';
 import { spawnMoney as spawnCash } from '../objects/money';
 import { rewardPlinth as kitRewardPlinth } from './scaffold';
 import { buildExitRoom } from './exit-room';
@@ -517,6 +518,7 @@ export function revealDucks(ctx: GameContext): void {
     pup.scale.setScalar(0.4);
     pup.position.set(pos.x, 0.95, pos.z); // perched on the plinth until you approach
     ctx.setCompanion(pup); // it follows you AND survives level transitions
+    discover('reward:baby-wolf');
   };
 
   const spawnMoney = (pos: THREE.Vector3) => {

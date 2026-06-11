@@ -247,7 +247,33 @@ harness). The two layers catch different things:
 
 ---
 
-## 10. Build / deploy
+## 10. The content map & progress (`src/graph/`)
+
+An interactive node diagram of how everything connects — levels, items,
+mechanics, combines, portals, reward path-ends — served as a second page at
+**`/button/graph.html`** (linked from the menu as *THE MAP*). It triples as a
+player progress tracker, an explore-what's-left map, and the **design map for
+adding content** (human or AI).
+
+- **`content-graph.ts`** — THE single source of truth: `nodes` (each `id`
+  namespaced `lvl:/gag:/item:/mech:/reward:/fx:`) + `edges` (`combine`, `portal`,
+  `spawns`, `reward`, `enables`, …). **When you add an item / level / combine /
+  reward, add its node + edges here.** A smoke check (§9) fails if a `defineCombine`
+  in code has no matching node — so the map can't silently drift.
+- **Fog of war**: the page shows ALL nodes (you see the shape of what's left) but
+  anonymises any you haven't discovered (`?`, no name/details). A *Reveal all*
+  toggle lifts the fog → the full design map (use this when building).
+- **`progress.ts`** — discovery store (localStorage, shared with the game). The
+  game reveals nodes automatically: entering a level (`discoverExp`), grabbing an
+  item (`discoverItem`), combining (`discoverTarget`). For a reward/effect with no
+  grab/combine, call **`discover('reward:…')`** at the moment it's earned (see
+  circus `setWheel`, basketball `endGame`, duck-room baby wolf).
+- Nodes are revealed by the `keys` they declare (`exp`/`item`/`target` runtime
+  strings) — namespaced so the `basketball` level and the ball item never collide.
+
+---
+
+## 11. Build / deploy
 
 ```sh
 npm run dev          # localhost:5173 (Vite proxies /api/tts → :37777)

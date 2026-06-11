@@ -6,6 +6,7 @@ import { addUpdater, currentGeneration } from '../experiences/scheduler';
 import { spawnPedestalButton } from '../button/pedestal-button';
 import { setCounter, hideCounter } from '../ui/counter';
 import { whoosh, pop, sparkle } from '../audio/sfx';
+import { discover } from '../graph/progress';
 
 // HOOPS — a 30-second free-throw run inside the closed room (the walls bounce the
 // ball back). ONE ball: it drops in front of you and bounces (less and less);
@@ -296,9 +297,11 @@ export function revealBasketball(ctx: GameContext): void {
       ctx.setCompanion(basket, 0);
       const rim = basket.getObjectByName('hoop-rim');
       if (rim) ctx.setScoringHoop(rim, 0.32); // score throws into it from here on (resets to 0)
+      discover('reward:walking-basket');
     } else if (points >= REWARD_GOLD) {
       // Mid tier — the ball turns gold.
       ballMat.color.setHex(0xffd23f);
+      discover('reward:golden-ball');
       ballMat.emissive.setHex(0xc9912a);
       ballMat.emissiveIntensity = 0.5;
       ballMat.metalness = 0.5;

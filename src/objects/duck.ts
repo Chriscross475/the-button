@@ -3,6 +3,7 @@ import type { GameContext } from '../game/types';
 import { defineCombine, type Carryable, type CombineTarget } from '../game/combine';
 import { createAsset } from '../assets';
 import { spawnFeathers } from '../assets/effects';
+import { discover } from '../graph/progress';
 import { addUpdater } from '../experiences/scheduler';
 import { quack, thud, pop } from '../audio/sfx';
 import { vo } from '../audio/vo-shared';
@@ -94,6 +95,7 @@ export function spawnDuck(ctx: GameContext, x: number, z: number, opts: DuckOpts
     if (!duck.alive) return;
     duck.alive = false;
     spawnFeathers(ctx.levelRoot, object.position.clone());
+    discover('fx:feathers');
     ctx.removeCarryable(carry);
     if (target) { ctx.removeTarget(target); chop.delete(target); }
     object.parent?.remove(object);

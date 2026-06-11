@@ -149,6 +149,17 @@ export function showMainMenu(opts: MainMenuOptions): void {
   });
   links.appendChild(narr);
 
+  const sepMap = document.createElement('span');
+  sepMap.textContent = '·';
+  sepMap.style.color = 'rgba(30,30,30,0.35)';
+  links.appendChild(sepMap);
+  const map = makeLink('THE MAP');
+  map.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    window.location.href = 'graph.html'; // the content map / progress diagram (same origin)
+  });
+  links.appendChild(map);
+
   // Pause menu: a way back to a fresh first room.
   if (paused && opts.onRestart) {
     const sep2 = document.createElement('span');

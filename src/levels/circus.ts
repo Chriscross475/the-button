@@ -4,6 +4,7 @@ import { CONFIG } from '../config';
 import { addUpdater } from '../experiences/scheduler';
 import { buildExitRoom } from './exit-room';
 import { pop, whoosh, sparkle } from '../audio/sfx';
+import { discover } from '../graph/progress';
 
 // THE CIRCUS — a tall cylindrical big-top. Trampolines ring the inside edge at
 // rising heights in turning directions; each flings you up to the next, so you
@@ -232,6 +233,7 @@ export function revealCircus(ctx: GameContext): void {
       root.remove(unicycle);
       sparkle();
       ctx.setWheel(true);
+      discover('reward:unicycle');
       ctx.narrate('The top. And your reward, since you insist: a single wheel. No hands — just balance, which you sorely lack. It does love to slide. The walkway is very thin. Do enjoy.', 8000, { priority: true });
     }
     return false;

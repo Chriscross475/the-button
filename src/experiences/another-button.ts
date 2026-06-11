@@ -7,6 +7,7 @@ import { whoosh, blip, pop } from '../audio/sfx';
 import { spawnPedestalButton, type SpawnedButton } from '../button/pedestal-button';
 import { buildExitRoom } from '../levels/exit-room';
 import { vo } from '../audio/vo-shared';
+import { discover } from '../graph/progress';
 
 // THE BUTTON GAG. Press the button and it makes ANOTHER button — somewhere new.
 // Only the NEWEST one does anything; the rest are spent duds (pressing one is a
@@ -134,6 +135,7 @@ export const anotherButton: Experience = {
       const roomZ = backZ - CORR_LEN - 4.5;
       const rb = buildExitRoom(ctx, { center: new THREE.Vector3(0, 0, roomZ), facing: 'posZ', facade: false });
       // Placeholder reward: a golden, glowing orb on a plinth.
+      discover('reward:golden-orb');
       const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.7), new THREE.MeshStandardMaterial({ color: 0xd2d2cc, roughness: 0.85 }));
       plinth.position.set(2.6, 0.45, roomZ);
       root.add(plinth);

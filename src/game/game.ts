@@ -33,6 +33,7 @@ import { disposeTree } from '../engine/dispose';
 import { spawnPedestalButton } from '../button/pedestal-button';
 import type { GameContext, Level, LevelInstance, ControlMode, FlightWall } from './types';
 import { attachNamespaces } from './ctx-namespaces';
+import { discoverExp } from '../graph/progress';
 import type { Experience } from '../experiences/registry';
 import { pick } from '../experiences/util';
 import { pickExperience, getExperience, setLastExperience } from '../experiences/registry';
@@ -432,6 +433,7 @@ export class Game {
     this.spawnHandled = false; // …and may call ctx.spawnAt to emerge from its portal
     this.loadLevel('hub');
     exp?.run(this.ctx);
+    if (exp) discoverExp(exp.id); // light up this level/gag on the content map
     if (!this.spawnHandled) {
       // Default: same offset from the new (hub) button at (0,0,-2).
       this.camera.position.set(0 + offX, CONFIG.PLAYER_HEIGHT, -2 + offZ);
