@@ -245,6 +245,10 @@ export function revealBasketball(ctx: GameContext): void {
     const bb = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.7, 0.07), new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.7 }));
     bb.position.set(0, 1.55, -0.34);
     inner.add(bb);
+    // The red shooter's square, same as the real hoop — on the board, above the rim.
+    const sq = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 0.02), new THREE.MeshStandardMaterial({ color: 0xd23a2a, roughness: 0.6 }));
+    sq.position.set(0, 1.42, -0.3);
+    inner.add(sq);
     const r = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.035, 10, 22), new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.5, metalness: 0.4 }));
     r.rotation.x = Math.PI / 2;
     r.position.set(0, 1.3, 0);

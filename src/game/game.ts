@@ -106,8 +106,11 @@ export class Game {
   // A pet that follows the player across levels (scene-attached, Game-driven).
   private companion: THREE.Object3D | null = null;
   private companionFollow = false;
+  private companionStay = false; // tapped to hold position (still faces the player)
   private companionBob = 0;
   private companionBaseY = 0;
+  private readonly tapRay = new THREE.Raycaster();
+  private readonly tapNdc = new THREE.Vector2();
   private controlMode: ControlMode | null = null; // e.g. operating the slingshot
   // The unicycle, shown under the camera (visible when you look down).
   private wheelMesh: THREE.Group | null = null;
@@ -177,6 +180,7 @@ export class Game {
         this.companion = mesh;
         this.companionBaseY = baseY;
         this.companionFollow = false;
+        this.companionStay = false;
       },
       setWheel: (on) => this.setWheelMode(on),
       setControlMode: (cm) => {
@@ -535,12 +539,27 @@ export class Game {
       this.restart();
       return;
     }
+    // Tap a follower to make it STAY (it keeps facing you); tap again to follow.
+    if (this.companion && this.tapHitsCompanion(x, y)) {
+      this.companionStay = !this.companionStay;
+      if (!this.companionStay) this.companionFollow = true;
+      return;
+    }
     if (!this.playable() || !canPress) return;
     const it = findTapTarget(x, y, this.canvas, this.camera, getAllInteractables());
     if (!it) return;
     const dx = it.position.x - this.camera.position.x;
     const dz = it.position.z - this.camera.position.z;
     if (Math.hypot(dx, dz) <= it.radius) it.onUse();
+  }
+
+  // True if a tap at screen (x,y) lands on the companion mesh (any follower).
+  private tapHitsCompanion(x: number, y: number): boolean {
+    if (!this.companion) return false;
+    this.tapNdc.set((x / window.innerWidth) * 2 - 1, -((y / window.innerHeight) * 2 - 1));
+    this.tapRay.setFromCamera(this.tapNdc, this.camera);
+    const hits = this.tapRay.intersectObject(this.companion, true);
+    return hits.length > 0 && hits[0].distance < 9;
   }
 
   private onFirstInput(): void {
@@ -602,11 +621,19 @@ export class Game {
     const dx = p.x - c.position.x;
     const dz = p.z - c.position.z;
     const dist = Math.hypot(dx, dz) || 1;
-    if (!this.companionFollow && dist < 4) this.companionFollow = true; // joins you once you're near
+    // Tapped to hold position: stay put, but keep turning to face the player.
+    if (this.companionStay) {
+      c.rotation.y = Math.atan2(-dz, dx);
+      c.position.y += (this.companionBaseY - c.position.y) * Math.min(1, dt * 8);
+      c.rotation.z *= Math.max(0, 1 - dt * 8);
+      return;
+    }
+    if (!this.companionFollow && dist < 5) this.companionFollow = true; // joins you once you're near
     if (this.companionFollow) {
       let moving = false;
-      if (dist > 1.6) {
-        const sp = Math.min(2.8 * dt, dist - 1.4);
+      const FOLLOW_GAP = 3.0; // keep a bit more distance than before (was ~1.5)
+      if (dist > FOLLOW_GAP) {
+        const sp = Math.min(2.8 * dt, dist - (FOLLOW_GAP - 0.3));
         c.position.x += (dx / dist) * sp;
         c.position.z += (dz / dist) * sp;
         moving = true;
