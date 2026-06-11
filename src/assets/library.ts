@@ -379,7 +379,10 @@ function makeArm(): THREE.Group {
   // than dropping vertically from the hand "out of the ground".
   const elbow = new THREE.Group();
   elbow.position.set(0, 0.06, 0.03);
-  elbow.rotation.x = 1.2; // forearm runs back toward the camera (nearly horizontal)
+  // NEGATIVE tilt: the forearm runs back toward the camera (+Z in the view-locked
+  // frame) and a touch down — so the arm comes FROM the player up to the hand,
+  // not forward into the screen. (+ values point it away into the scene.)
+  elbow.rotation.x = -1.0;
   const wrist = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.058, 0.1, 10), skin);
   wrist.position.set(0, -0.04, 0);
   elbow.add(wrist);
