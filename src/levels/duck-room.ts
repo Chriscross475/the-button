@@ -308,9 +308,8 @@ export function revealDucks(ctx: GameContext): void {
   const WOLF_OPEN_LINE = vo('Fine. You clearly enjoy this. Let us at least give it a purpose.');
   const SAW_SCOLD_LINE = vo('Ah. I see. It is not about food at all. It matters to you that YOU are the one who kills.');
   const RESCUE_PRAISE_LINE = vo('And now, of course, you decide to do the right thing. How convenient for your conscience.');
-  // The rescue twist — sarcastic, pitying, Stanley-Parable.
-  const STAND_OPEN_LINE =
-    vo('The ducks, saved. A hero. And the farm, being a business, sold every one. There they are now — Peking duck, lacquered and golden, turning on the spit. Your good intentions, it turns out, come with a rather bitter aftertaste.');
+  // The rescue twist — sarcastic, pitying, Stanley-Parable. (The reveal itself is
+  // RESOLVE_LINES.stand; the per-rescue jabs are below.)
   const STAND_LINES = vo([
     'Another life saved. Another duck for the rotisserie.',
     'Rescued, glazed, and slowly rotating. The mercy continues.',
@@ -342,7 +341,7 @@ export function revealDucks(ctx: GameContext): void {
   // Resolution lines — the corridor opens, with (or without) a reward.
   const RESOLVE_LINES: Record<'wolf' | 'stand' | 'none' | 'wolf-freed', string> = vo({
     wolf: 'A baby wolf. It has decided you are its mother. God help you both. Take your prize, and go.',
-    stand: 'Five ducks saved, and the farm sold every one. Peking duck now, lacquered and turning. Bitter — but they wired you your cut: one hundred dollars. The corridor is open. Spend it well.',
+    stand: 'Five ducks saved, and the farm sold every one. Peking duck now, lacquered and turning. Bitter — but the farm, grateful, wired you your cut. It is waiting in the corridor. Spend it well.',
     none: 'Every last duck, used up. No wolf to feed, no stand to fill — just an empty pen. There is your way out. There is no prize. Off you go.',
     'wolf-freed': 'The gate falls. The wolf — fed, content, inexplicably fond of you — pads out and falls into step behind you. The way is open. Try not to think about its teeth.',
   });

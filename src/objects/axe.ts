@@ -64,6 +64,7 @@ export function spawnAxe(ctx: GameContext, stumpPos: THREE.Vector3, opts: AxeOpt
     ctx.after(SWING_DUR * 500, () => opts.onSwing?.(ax, az));
   };
 
+  let announced = false; // the "you found the axe" line, once per axe
   const axe: Carryable = {
     kind: 'axe',
     object: axeGroup,
@@ -74,6 +75,10 @@ export function spawnAxe(ctx: GameContext, stumpPos: THREE.Vector3, opts: AxeOpt
     onGrab: () => {
       whoosh();
       pop();
+      if (!announced) {
+        announced = true;
+        ctx.narrate('An axe, out of the stump. Heavy, sharp, and now entirely your problem. It will want to hit things.', 5000, { interruptible: true });
+      }
     },
     onTap: doSwing,
     heldUpdate: (dt, obj, camQuat) => {

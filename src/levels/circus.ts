@@ -215,6 +215,18 @@ export function revealCircus(ctx: GameContext): void {
     return true;
   });
 
+  // Take the boring ground exit out the back instead of climbing — the narrator
+  // has opinions about that too.
+  let tookEasy = false;
+  addUpdater(() => {
+    if (tookEasy) return true;
+    const p = ctx.playerPos();
+    if (ctx.isAirborne() || p.y > 2 || p.z > -9 || Math.abs(p.x) > 3) return false;
+    tookEasy = true;
+    ctx.narrate('Out the back, then. No climb, no wheel, no spectacle — a door for the sensible and the faint of heart. There is no prize for sense. There rarely is.', 6500, { interruptible: true });
+    return true;
+  });
+
   // ── Bounce: standing on a trampoline flings you toward the next (steer to
   //    land on it). Reaching the last one arcs you to the top platform. ──
   const PH = CONFIG.PLAYER_HEIGHT;

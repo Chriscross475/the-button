@@ -434,5 +434,5 @@ export function revealDoors(ctx: GameContext): void {
     }
   }
 
-  ctx.narrate('The front wall is gone. A corridor. Every door has opinions. And the floor, it turns out, has views of its own.', 5500);
+  ctx.narrate('The front wall is gone. A corridor, and every door in it has opinions.', 5000);
 }

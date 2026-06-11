@@ -198,6 +198,7 @@ export function revealForest(ctx: GameContext): void {
   // cabin's planked door. Everything else about the axe (grab, swing animation,
   // tumbling throw, carrying it onward) lives on the object.
   let tryBreakDoor: (ax: number, az: number) => void = () => {};
+  let felledOnce = false; // the "a tree comes down" line, first fell only
   spawnAxe(ctx, stumpPos, {
     onSwing: (ax, az) => {
       let near: Tree | null = null;
@@ -215,6 +216,10 @@ export function revealForest(ctx: GameContext): void {
         root.add(fire);
         ctx.addTarget({ kind: 'campfire', position: new THREE.Vector3(near.x, 0, near.z), radius: 2.2 });
         thud();
+        if (!felledOnce) {
+          felledOnce = true;
+          ctx.narrate('A tree comes down, and a campfire where it stood. I stopped asking how this place works. You should too.', 5500, { interruptible: true });
+        }
       }
       tryBreakDoor(ax, az); // a swing near the cabin's plank smashes it open
     },

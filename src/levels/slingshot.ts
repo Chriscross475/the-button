@@ -155,10 +155,10 @@ export function revealSlingshot(ctx: GameContext): void {
           thunder();
           if (d.block === 'wood') {
             openWood();
-            ctx.narrate('The beam splinters. That tunnel is open now.', 4000, { priority: true });
+            ctx.narrate('The beam splinters. One more tunnel, open to whatever it is the tunnels here do to people.', 4500, { priority: true });
           } else {
             openStone();
-            ctx.narrate('The bricks give way. Another tunnel cleared.', 4000, { priority: true });
+            ctx.narrate('The bricks cave in. Behind them, more dark — every bit as inviting as the last.', 4500, { priority: true });
           }
         };
         if (d.block === 'wood') breakWood = clear;
@@ -345,7 +345,7 @@ export function revealSlingshot(ctx: GameContext): void {
       aimIdx = DIRS.findIndex((d) => d.key === getSling().direction);
       prevX = 0;
       ctx.setControlMode(control);
-      ctx.narrate('You take the controls. A and D to aim, E to power it on and off, S to step off.', 6000, { priority: true });
+      ctx.narrate('Fine. You take the controls — A and D to aim, E for power, S to step off. I did say I would stay quiet. Consider this the exception, not the habit.', 6500, { priority: true });
     },
   });
 

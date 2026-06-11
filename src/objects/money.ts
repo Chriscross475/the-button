@@ -11,13 +11,20 @@ export function spawnMoney(ctx: GameContext, pos: THREE.Vector3): void {
   const cash = createAsset('money');
   cash.position.copy(pos);
   ctx.levelRoot.add(cash);
+  let announced = false; // the "you've got the money" line, once per stack
   ctx.addCarryable({
     kind: 'money',
     object: cash,
     persistent: true, // your cut — it comes with you
     heldDist: 0.55,
     heldDrop: 0.32,
-    onGrab: () => pop(),
+    onGrab: () => {
+      pop();
+      if (!announced) {
+        announced = true;
+        ctx.narrate('Money. I will not ask where it came from. Neither, I think, should you.', 4500, { interruptible: true });
+      }
+    },
     // No bespoke throw: declaring `projectile` lets the engine fly it (gravity +
     // bounce off floor/walls/obstacles, then it settles) — same as everywhere.
     projectile: { radius: 0.3, restitution: 0.35, gravity: 16 },
