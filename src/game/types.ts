@@ -113,7 +113,7 @@ export interface GameContext {
   /** Fly an object as a projectile the engine drives in ANY level (gravity +
    *  floor/wall bounce, then it settles). Lets a kept item's throw physics live
    *  with the object instead of a level's updater. */
-  launchProjectile: (object: THREE.Object3D, velocity: THREE.Vector3, opts?: { radius?: number; restitution?: number; gravity?: number }) => void;
+  launchProjectile: (object: THREE.Object3D, velocity: THREE.Vector3, opts?: { radius?: number; restitution?: number; gravity?: number; onLand?: (impactSpeed: number) => boolean; onSettle?: () => void }) => void;
   /** A pet/object that follows the player AND survives level transitions (the
    *  baby wolf; the kept basket). Parented to the scene; the Game drives the
    *  follow + faces it at the player. `baseY` floats it at a height (e.g. a

@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import type { GameContext } from '../game/types';
 import { buildExitRoom } from './exit-room';
 import { addUpdater } from '../experiences/scheduler';
-import { whoosh, pop, thud, quack } from '../audio/sfx';
-import { defineCombine, type Carryable, type CombineTarget } from '../game/combine';
+import { whoosh, pop, thud } from '../audio/sfx';
+import { type Carryable, type CombineTarget } from '../game/combine';
 import { createAsset } from '../assets';
+import { spawnDuck } from '../objects/duck';
 
 // A LEVEL — the forest. The walls topple and you're on a wide outdoor plain
 // dotted with trees, under a bright sky. Resolution: find the clearing with the
@@ -32,27 +33,9 @@ interface Tree {
   felled: boolean;
 }
 
-// Hold a duck, click a campfire → a roast duck on a skewer, carried in the OTHER
-// hand. It PERSISTS across levels (ctx.setCarried), so you can take it onward.
-defineCombine('duck', 'campfire', (held, _target, env) => {
-  env.carry.removeCarryable(held); // also clears the hand the duck was in
-  held.object.parent?.remove(held.object); // the duck is, regrettably, consumed
-  pop();
-  thud();
-  const cooked = createAsset('cooked-duck');
-  env.ctx.scene.add(cooked); // on the scene → persists across level transitions
-  // Goes into the SAME hand that cooked it, and survives onward.
-  env.carry.putInHand(env.side, {
-    kind: 'cooked-duck',
-    object: cooked,
-    persistent: true,
-    heldDist: 0.7,
-    heldDrop: 0.3,
-  });
-  env.ctx.narrate('A whole roast duck, on a skewer, made by your own hand. Keep it. You will want it later.', 5500, {
-    priority: true,
-  });
-});
+// (The duck and ALL its behaviour — wander, throw physics, splat, axe→feathers,
+//  cook on a campfire — live in src/objects/duck.ts. The forest just spawns a
+//  few; they behave exactly as ducks behave everywhere.)
 
 // A painted forest backdrop drawn onto a canvas: blue sky gradient, a few soft
 // white clouds, and a row of overlapping dark-green flat tree silhouettes along
@@ -334,71 +317,11 @@ export function revealForest(ctx: GameContext): void {
   };
   ctx.addCarryable(axeCarry);
 
-  // ── A few wandering ducks, sparse — grab one to carry (cook it on a campfire,
-  //    or take it onward; a duck in hand softens a train, elsewhere). ──
-  const DUCK_R = 0.2;
-  const spawnForestDuck = (dx: number, dz: number) => {
-    const duck = createAsset('duck') as THREE.Group;
-    duck.position.set(dx, DUCK_R, dz);
-    duck.rotation.y = Math.random() * Math.PI * 2;
-    root.add(duck);
-    const st = { held: false, flying: false, heading: Math.random() * 6, waddle: Math.random() * 6, bx: dx, bz: dz };
-    addUpdater(() => {
-      if (!duck.parent) return true;
-      if (st.held || st.flying) return false;
-      const dt = 1 / 60;
-      if (Math.random() < 0.4 * dt) st.heading = Math.random() * Math.PI * 2;
-      let dy = st.heading - duck.rotation.y;
-      while (dy > Math.PI) dy -= Math.PI * 2;
-      while (dy < -Math.PI) dy += Math.PI * 2;
-      duck.rotation.y += dy * Math.min(1, dt * 3);
-      const fx = Math.cos(duck.rotation.y);
-      const fz = -Math.sin(duck.rotation.y);
-      let nx = duck.position.x + fx * 0.6 * dt;
-      let nz = duck.position.z + fz * 0.6 * dt;
-      if (Math.abs(nx - st.bx) > 7) { st.heading = Math.PI - st.heading; nx = duck.position.x; }
-      if (Math.abs(nz - st.bz) > 7) { st.heading = -st.heading; nz = duck.position.z; }
-      duck.position.x = nx;
-      duck.position.z = nz;
-      st.waddle += dt * 7;
-      duck.rotation.z = Math.sin(st.waddle) * 0.22;
-      duck.position.y = DUCK_R + Math.abs(Math.cos(st.waddle)) * 0.03;
-      return false;
-    });
-    ctx.addCarryable({
-      kind: 'duck',
-      object: duck,
-      heldDist: 0.9,
-      onGrab: () => { st.held = true; quack(); },
-      onRelease: () => { st.held = false; },
-      heldUpdate: (_dt, obj, _q, f) => obj.rotation.set(0, Math.atan2(f.x, f.z) + Math.PI, 0),
-      onThrow: () => {
-        st.held = false;
-        st.flying = true;
-        ctx.camera.getWorldDirection(fwd);
-        const v = fwd.clone().multiplyScalar(8).add(new THREE.Vector3(0, 3, 0));
-        quack();
-        addUpdater(() => {
-          const dt = 1 / 60;
-          v.y -= 11 * dt;
-          duck.position.addScaledVector(v, dt);
-          duck.rotation.x += dt * 5;
-          if (duck.position.y <= DUCK_R) {
-            duck.position.set(duck.position.x, DUCK_R, duck.position.z);
-            duck.rotation.set(0, duck.rotation.y, 0);
-            st.flying = false;
-            st.bx = duck.position.x;
-            st.bz = duck.position.z;
-            thud();
-            return true;
-          }
-          return false;
-        });
-      },
-    });
-  };
+  // ── A few wandering ducks, sparse — the same duck object as everywhere: grab
+  //    one to carry it onward, throw it (it bounces off trees/the cabin and
+  //    splats if it comes down hard), cook it on a campfire, or axe it. ──
   for (const [dx, dz] of [[11, -7], [-13, 9], [7, 16], [-9, -14]] as [number, number][]) {
-    spawnForestDuck(dx, dz);
+    spawnDuck(ctx, dx, dz);
   }
 
   // ── Painted forest backdrop walls at the four edges, facing inward ──

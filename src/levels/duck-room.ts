@@ -7,6 +7,7 @@ import { quack, thud, pop } from '../audio/sfx';
 import { setCounter, hideCounter } from '../ui/counter';
 import { defineCombine, type Carryable } from '../game/combine';
 import { createAsset } from '../assets';
+import { spawnFeathers } from '../assets/effects';
 import { buildExitRoom } from './exit-room';
 import { vo } from '../audio/vo-shared';
 
@@ -1098,60 +1099,4 @@ function scatterFood(
   }
 }
 
-// ── A burst of small white "feather" bits that scatter, fall, and fade. ──
-function spawnFeathers(root: THREE.Object3D, at: THREE.Vector3): void {
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.4,
-    transparent: true,
-    opacity: 1,
-    side: THREE.DoubleSide,
-  });
-  const group = new THREE.Group();
-  root.add(group);
-  interface Bit {
-    mesh: THREE.Mesh;
-    v: THREE.Vector3;
-    spin: THREE.Vector3;
-  }
-  const bits: Bit[] = [];
-  for (let i = 0; i < 14; i++) {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.12), mat);
-    mesh.position.copy(at);
-    mesh.position.y = DUCK_RADIUS + 0.1;
-    group.add(mesh);
-    const a = Math.random() * Math.PI * 2;
-    const sp = 1.2 + Math.random() * 2.4;
-    bits.push({
-      mesh,
-      v: new THREE.Vector3(Math.cos(a) * sp, 2 + Math.random() * 2, Math.sin(a) * sp),
-      spin: new THREE.Vector3(
-        (Math.random() - 0.5) * 10,
-        (Math.random() - 0.5) * 10,
-        (Math.random() - 0.5) * 10,
-      ),
-    });
-  }
-  let t = 0;
-  const life = 1.8;
-  addUpdater((dt) => {
-    t += dt;
-    for (const b of bits) {
-      b.v.y -= 5 * dt;
-      b.mesh.position.addScaledVector(b.v, dt);
-      if (b.mesh.position.y < 0.02) {
-        b.mesh.position.y = 0.02;
-        b.v.set(0, 0, 0);
-      }
-      b.mesh.rotation.x += b.spin.x * dt;
-      b.mesh.rotation.y += b.spin.y * dt;
-      b.mesh.rotation.z += b.spin.z * dt;
-    }
-    mat.opacity = Math.max(0, 1 - t / life);
-    if (t >= life) {
-      root.remove(group);
-      return true;
-    }
-    return false;
-  });
-}
+// (spawnFeathers now lives in assets/effects — shared with the axe→duck chop.)

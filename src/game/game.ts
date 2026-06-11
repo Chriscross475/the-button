@@ -198,7 +198,9 @@ export class Game {
       isDead: () => this.mode === 'dead',
     };
 
-    this.carry = createCarry(this.ctx); // the single global carry system
+    // The single global carry system. It gets a live view of the active level's
+    // obstacles so thrown projectiles bounce off interior walls (e.g. the cabin).
+    this.carry = createCarry(this.ctx, () => this.current?.obstacles ?? []);
 
     this.input = createTouchInput(canvas, {
       onInteract: () => this.onInteract(),

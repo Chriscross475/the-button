@@ -74,8 +74,8 @@ export interface Carry {
   /** The item in either hand (right preferred), or null. */
   held(): Carryable | null;
   /** Fly `object` as a projectile the engine drives across levels (gravity +
-   *  floor/wall bounce, then it settles). Used for thrown keepsakes. */
-  launch(object: THREE.Object3D, velocity: THREE.Vector3, opts?: { radius?: number; restitution?: number; gravity?: number }): void;
+   *  floor/wall/obstacle bounce, then it settles). Used for thrown keepsakes. */
+  launch(object: THREE.Object3D, velocity: THREE.Vector3, opts?: { radius?: number; restitution?: number; gravity?: number; onLand?: (impactSpeed: number) => boolean; onSettle?: () => void }): void;
   /** Drive the hands each frame (called by the Game). `active` = in play. */
   tick(dt: number, active: boolean): void;
   /** Drop everything registered for the level being left, keeping the hands/arms
@@ -105,7 +105,10 @@ interface Hand {
 // ONE global instance, created once by the Game. The Game drives it via tick()
 // and resets the per-level registry via clearLevel(). Levels register their
 // carryables/targets through ctx (ctx.addCarryable / ctx.addTarget / …).
-export function createCarry(ctx: GameContext): Carry {
+export function createCarry(
+  ctx: GameContext,
+  getObstacles: () => { x: number; z: number; radius: number }[] = () => [],
+): Carry {
   const carryables: Carryable[] = [];
   const targets: CombineTarget[] = [];
   let playing = false; // true while in play (set each tick by the Game)
@@ -120,6 +123,8 @@ export function createCarry(ctx: GameContext): Carry {
     radius: number;
     rest: number;
     gravity: number;
+    onLand?: (impactSpeed: number) => boolean; // each ground hit; true = consumed (e.g. splat)
+    onSettle?: () => void; // fired once the projectile comes to rest
   }
   const loose: Loose[] = [];
   const dropLoose = (object: THREE.Object3D) => {
@@ -194,12 +199,36 @@ export function createCarry(ctx: GameContext): Carry {
       else if (p.x < b.minX + l.radius) { p.x = b.minX + l.radius; l.vel.x = -l.vel.x * l.rest; }
       if (p.z > b.maxZ - l.radius) { p.z = b.maxZ - l.radius; l.vel.z = -l.vel.z * l.rest; }
       else if (p.z < b.minZ + l.radius) { p.z = b.minZ + l.radius; l.vel.z = -l.vel.z * l.rest; }
+      // Bounce off the level's circular obstacles (cabin walls, posts, trees) so
+      // a thrown object can't ghost through interior geometry.
+      for (const o of getObstacles()) {
+        const dx = p.x - o.x;
+        const dz = p.z - o.z;
+        const rr = o.radius + l.radius;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < rr * rr && d2 > 1e-6) {
+          const dist = Math.sqrt(d2);
+          const nx = dx / dist;
+          const nz = dz / dist;
+          p.x = o.x + nx * rr;
+          p.z = o.z + nz * rr;
+          const vn = l.vel.x * nx + l.vel.z * nz;
+          if (vn < 0) { l.vel.x -= (1 + l.rest) * vn * nx; l.vel.z -= (1 + l.rest) * vn * nz; }
+        }
+      }
       const rest = floorY + l.radius;
-      if (p.y < rest) { p.y = rest; l.vel.y = -l.vel.y * l.rest; l.vel.x *= 0.82; l.vel.z *= 0.82; }
+      if (p.y < rest) {
+        p.y = rest;
+        if (l.onLand && l.onLand(Math.abs(l.vel.y))) { loose.splice(i, 1); continue; } // consumed on impact (e.g. splat)
+        l.vel.y = -l.vel.y * l.rest;
+        l.vel.x *= 0.82;
+        l.vel.z *= 0.82;
+      }
       l.object.rotation.x += l.vel.z * dt * 0.4;
       l.object.rotation.z -= l.vel.x * dt * 0.4;
       if (p.y <= rest + 0.001 && Math.abs(l.vel.y) < 0.7 && Math.hypot(l.vel.x, l.vel.z) < 0.4) {
         l.vel.set(0, 0, 0);
+        l.onSettle?.();
         loose.splice(i, 1); // at rest; it stays put + grabbable (still in the registry)
       }
     }
@@ -231,6 +260,8 @@ export function createCarry(ctx: GameContext): Carry {
         radius: opts?.radius ?? 0.2,
         rest: opts?.restitution ?? 0.5,
         gravity: opts?.gravity ?? 16,
+        onLand: opts?.onLand,
+        onSettle: opts?.onSettle,
       });
     },
     tick: (dt, active) => {
@@ -248,20 +279,23 @@ export function createCarry(ctx: GameContext): Carry {
       // Whatever's IN your hands carries to the next level (re-parented to the
       // scene so it survives the old level root being removed). Only the level's
       // un-held ground items are dropped.
+      const heldItems: Carryable[] = [];
       for (const side of ['left', 'right'] as Side[]) {
         const h = hands[side];
-        if (h.item) ctx.scene.add(h.item.object);
+        if (h.item) {
+          ctx.scene.add(h.item.object);
+          heldItems.push(h.item);
+        }
         h.pressing = false;
         h.arm.visible = false;
         label(side);
       }
-      // PERSISTENT carryables (kept items, e.g. the basketball) stay registered
-      // AND keep their objects alive on the scene, so they remain grabbable —
-      // and a loose one mid-flight keeps flying — in every later level. Anything
-      // else (a level's ground props) is dropped with the old level.
-      const kept = carryables.filter((c) => c.persistent);
+      // Persistence = you CARRIED it. A persistent item still in your hand keeps
+      // all its properties into the next level (stays registered → grabbable +
+      // usable). Everything else — ground props, things you set down — drops with
+      // the level being left.
+      const kept = carryables.filter((c) => c.persistent && heldItems.includes(c));
       const keptObjs = new Set(kept.map((c) => c.object));
-      for (const c of kept) ctx.scene.add(c.object);
       for (let i = loose.length - 1; i >= 0; i--) if (!keptObjs.has(loose[i].object)) loose.splice(i, 1);
       carryables.length = 0;
       carryables.push(...kept);
