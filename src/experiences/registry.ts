@@ -28,6 +28,11 @@ export function experienceCount(): number {
   return experiences.length;
 }
 
+/** Every registered experience (used by the smoke harness to build them all). */
+export function allExperiences(): readonly Experience[] {
+  return experiences;
+}
+
 export function getExperience(id: string): Experience | undefined {
   return experiences.find((e) => e.id === id);
 }
