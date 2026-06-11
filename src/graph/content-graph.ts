@@ -131,6 +131,8 @@ const nodes: GNode[] = [
     note: 'Feed the wolf ducks. Tame it (3+) then axe the gate and it follows you; starve it and it kills you.' },
   { id: 'mech:food-stand', label: 'The Food Stand', kind: 'mechanic', keys: { target: ['stand', 'stand-fence'] },
     note: 'The mercy payout. A roast duck doubles it; an axe to its fence reveals a hidden till.' },
+  { id: 'mech:grown-wolf', label: 'The Grown Wolf', kind: 'mechanic',
+    note: 'What the baby wolf becomes after ten ducks: the size of its mother, out of ducks, and looking at you. It used you exactly like you used them.' },
 
   // ── Reward path-ends ──
   { id: 'reward:walking-basket', label: 'The Walking Basket', kind: 'reward',
@@ -138,7 +140,7 @@ const nodes: GNode[] = [
   { id: 'reward:golden-ball', label: 'The Golden Ball', kind: 'reward',
     note: 'Score 8+ and the ball turns to gold in your hands — a keepsake.' },
   { id: 'reward:baby-wolf', label: 'The Baby Wolf', kind: 'reward',
-    note: 'Spare and feed the duck-room wolf and a pup follows you out. It snacks on stray ducks and grows — feed it ten and it is mother-sized, and turns on you.' },
+    note: 'Spare and feed the duck-room wolf and a pup follows you out across the levels. It snacks on stray ducks as it trots after you — and it grows.' },
   { id: 'reward:unicycle', label: 'The Unicycle', kind: 'reward',
     note: 'Won atop the big top: a one-wheeled way to move — faster, and a menace to steer.' },
   { id: 'reward:golden-orb', label: 'The Golden Orb', kind: 'reward',
@@ -223,7 +225,8 @@ const edges: GEdge[] = [
   { from: 'item:money', to: 'mech:wolf-gate', kind: 'combine', label: 'bribe' }, // it can't spend it; it takes it anyway
   { from: 'item:duck', to: 'mech:scoring-hoop', kind: 'reward', label: 'dunk → feathers' }, // a duck through the hoop scores + bursts
   { from: 'item:basketball', to: 'mech:trampoline', kind: 'enables', label: 'trick shot' }, // bounce it in for bonus
-  { from: 'item:duck', to: 'reward:baby-wolf', kind: 'enables', label: 'feeds it — 10 = doom' }, // the pet eats stray ducks & grows
+  { from: 'item:duck', to: 'reward:baby-wolf', kind: 'enables', label: 'feeds it' }, // the pet eats stray ducks…
+  { from: 'reward:baby-wolf', to: 'mech:grown-wolf', kind: 'makes', label: 'fed 10 → it turns' }, // …and at ten becomes your doom
   { from: 'lvl:circus', to: 'lvl:ducks', kind: 'portal', label: "the void's floor" }, // fall off the walkway → the duck pens
 ];
 

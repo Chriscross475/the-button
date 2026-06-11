@@ -58,6 +58,7 @@ export function spawnBabyWolf(ctx: GameContext, pos: THREE.Vector3): void {
 
     if (fed >= TO_DOOM) {
       doomed = true;
+      discover('mech:grown-wolf'); // a different node from the pup — reached only here
       ctx.narrate(
         'Ten ducks. It is the size of its mother now, and it has run out of ducks. You are not a duck — but you fed it every one, and it has decided that is close enough. It used you exactly like you used them.',
         9000,
