@@ -232,10 +232,10 @@ export function revealCircus(ctx: GameContext): void {
       root.remove(unicycle);
       sparkle();
       ctx.setWheel(true);
-      ctx.narrate('The top. Your prize: a single wheel. No hands needed — just balance. Faster, certainly. But oh, how it loves to slide. Mind the walkway.', 8000, { priority: true });
+      ctx.narrate('The top. And your reward, since you insist: a single wheel. No hands — just balance, which you sorely lack. It does love to slide. The walkway is very thin. Do enjoy.', 8000, { priority: true });
     }
     return false;
   });
 
-  ctx.narrate('A big top. Trampolines up the walls, climbing in circles. Bounce your way to the top — there is something up there worth the vertigo.', 6500);
+  ctx.narrate('A big top — and you, the entire act. Trampolines up the walls, winding tighter the higher you go. Climb, if you fancy it. The falling is the part I enjoy.', 6500);
 }
