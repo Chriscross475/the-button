@@ -17,11 +17,14 @@ clear recipe, without reverse-engineering the engine.
   `src/experiences/scheduler.ts` (per-frame updaters), `src/ui/`, `src/audio/`,
   `src/controls/`.
 - **Content** (this is where you add things): `src/assets/` (reusable geometry),
-  `src/levels/` (scene builders), `src/experiences/` (button gags + level wrappers).
+  `src/objects/` (stateful world things that own their behaviour — duck, axe,
+  money), `src/levels/` (scene builders), `src/experiences/` (button gags + level
+  wrappers).
 
 **Golden rule:** *no object in the world should be one-level-only.* Reusable
-geometry lives in the **asset registry**; behaviour that's the same everywhere
-lives **with the asset** (see `train.ts` → `trainStrike`).
+geometry lives in the **asset registry** (§2); a thing's *behaviour* lives **with
+the thing** — on the asset (`train.ts` → `trainStrike`) or as an object (§2b),
+never forked per level. There is no "forest duck", only **the duck** (§2b).
 
 ---
 
@@ -55,6 +58,33 @@ function makeAxeInTrunk() { const g = new THREE.Group();
   return g; }
 // later: comp.getObjectByName('axe')
 ```
+
+---
+
+## 2b. Objects (`src/objects/`) — behaviour lives on the OBJECT
+
+`assets/` is pure geometry. **`objects/`** holds the *stateful, behavioural*
+world things: a single self-contained definition that owns ALL of its behaviour
+and is the same in every level. Currently `duck.ts`, `axe.ts`, `money.ts`.
+
+**The golden rule:** there is no "forest duck" and "duck-room duck" — there is
+**the duck**. If a behaviour shows up in one level but not another, that's the
+bug: move it onto the object. Level-specific reactions ride an **opt hook**
+(`spawnDuck(ctx, x, z, { onLand })`, `spawnAxe(ctx, pos, { onSwing })`), not a
+fork of the object.
+
+**Persistence = the player CARRIED it.** A `persistent` carryable held in hand
+crosses into the next level with all its properties; things set down drop with
+the level. A carried object re-establishes its per-level hooks (wander, combine
+targets) via `onEnterLevel` on the carryable — so it arrives fully alive.
+
+### Add an object
+1. `src/objects/thing.ts`: `export function spawnThing(ctx, x, z, opts?) { … }`
+   — build via `createAsset`, register a `ctx.addCarryable({ kind, object,
+   persistent?, projectile?, onEnterLevel?, … })`, wire its global combines with
+   `defineCombine`, and put level-specific reactions behind `opts` hooks.
+2. Throwables: declare `projectile: { radius, restitution?, gravity? }` and the
+   engine flies it (gravity + floor/wall/obstacle bounce) — no per-level updater.
 
 ---
 
@@ -95,21 +125,40 @@ random):
 `defineLevel` handles: `openRoom()`, `hideRoomShell()`, the reveal guard. You
 just `build`.
 
+### The level kit (`src/levels/scaffold.ts`) — reuse, don't re-derive
+Shared primitives so a new level is *assembly*, not geometry from scratch:
+- `groundPlane()` — dark floor with the z-fight-safe polygonOffset.
+- `walkThroughPortal(ctx, { zone, to, ref, entry? })` — registers the one-shot
+  updater that fires `advanceTo` when the player enters `zone`. **Use this for
+  every walk-through portal** (tunnel↔tunnel, crack↔forest) — don't hand-roll
+  the updater + bounds check.
+- `rewardPlinth(root, pos)` — the stone base/column/cap a prize sits on.
+- `crackedWall(root, pos, facingY)` — a dark recess + scattered rubble marking a
+  walk-through hole; pair with `walkThroughPortal` + a `ctx.entry` spawn.
+When two levels need the same shape, **add a kit primitive** rather than copy it.
+
 ---
 
 ## 4. The GameContext API (`ctx`, see `src/game/types.ts`)
 
-Everything a level/experience can do, grouped:
-- **World**: `scene`, `camera`, `levelRoot`, `playerPos()`.
-- **Narration**: `narrate(text, holdMs?, { priority?, interruptible? })`.
-- **Transitions**: `advance(buttonPos?)`, `advanceTo(id, buttonPos?)`, `goToLevel(id)`, `returnToHub()`, `openRoom(opts?)`.
-- **Room button**: `setRoomButton(fn)`, `sinkRoomButton()`, `spawnButton(pos)`.
-- **Bounds/physics**: `bounds`, `setBounds`, `setRegions`, `addObstacle/removeObstacle`, `setLanding`, `setFlightWalls`, `launchPlayer`, `die`, `isAirborne`, `isDead`.
-- **Carry**: `addCarryable/removeCarryable`, `addTarget/removeTarget`, `isHolding`, `consumeHeld`, `heldKind`, `putInHand`.
-- **Misc**: `setCompanion`, `setWheel`, `setControlMode`.
-- **Timing**: `after(ms, fn)` — a delayed callback that a level transition
-  cancels automatically. **Never use `window.setTimeout` in content** — it
-  outlives the level and fires into the next one.
+A flat API, but `types.ts` groups it into 9 labeled sections (mirror these when
+you read the source):
+- **World & frame**: `scene`, `camera`, `levelRoot`, `playerPos()`.
+- **Narration & timing**: `narrate(text, holdMs?, { priority?, interruptible? })`;
+  `after(ms, fn)` — a delayed callback a level transition cancels automatically.
+  **Never use `window.setTimeout` in content** — it outlives the level and fires
+  into the next one.
+- **Transitions & portals**: `goToLevel(id)`, `returnToHub()`, `advance(buttonPos?)`,
+  `advanceTo(id, buttonPos?, entry?)`, `entry`, `spawnAt(ground, yaw)`.
+- **The room shell + button**: `openRoom(opts?)`, `setRoomButton(fn)`,
+  `sinkRoomButton()`, `spawnButton(pos)`.
+- **Movement region & collision**: `bounds`, `setBounds`, `setRegions`,
+  `addObstacle/removeObstacle`, `setLanding`, `setFlightWalls`.
+- **Player physics & death**: `launchPlayer`, `die`, `isAirborne`, `isDead`.
+- **Carry & combine**: `addCarryable/removeCarryable`, `addTarget/removeTarget`,
+  `isHolding`, `consumeHeld`, `heldKind`, `putInHand`, `launchProjectile`.
+- **Companions & followers**: `setCompanion`, `setScoringHoop`.
+- **Movement modes**: `setWheel`, `setControlMode`.
 
 ---
 
@@ -119,8 +168,12 @@ Everything a level/experience can do, grouped:
   player's offset from `buttonPos`; **a bare `advance()` stands them clear** of
   the new button (don't pass the player's own position).
 - **Button exit**: `spawnPedestalButton(root, pos, () => ctx.advance(pos))`.
-- **Walk-through portal** (e.g. slingshot→tunnel): an updater that checks a zone
-  and calls `ctx.advanceTo('other-level', refPos)`.
+- **Walk-through portal** (e.g. slingshot→tunnel): `walkThroughPortal(ctx, {
+  zone, to, ref, entry })` (§3 kit). The destination reads `ctx.entry` and calls
+  `ctx.spawnAt(ground, yaw)` to step the player out of its matching portal.
+- **Entry-spawn yaw** (radians, world): `0` faces −Z, `π` faces +Z, `π/2` faces
+  −X, `3π/2` faces +X. (Cylinder convention `x=r·sinθ, z=r·cosθ` — the circus
+  opening bug came from forgetting this.)
 
 ---
 
@@ -161,7 +214,33 @@ Everything a level/experience can do, grouped:
 
 ---
 
-## 9. Build / deploy
+## 9. Quality gates & performance
+
+**Before you commit content, run `npm run verify`** (`tsc --noEmit` + the smoke
+harness). The two layers catch different things:
+- **`tsc`** — types. The flat `ctx` contract + `Carryable`/`CombineTarget` shapes
+  mean a wrong field is a compile error, not a runtime surprise.
+- **`npm run smoke`** (`scripts/smoke.ts`) — a headless Node run that mocks the
+  DOM + AudioContext, then **builds every asset, the hub, and every experience**
+  against a recording mock `ctx`. It fails on any throw or null. This is what
+  proves a new asset/level/gag at least *constructs* without a browser — green
+  output is `smoke: N built, 0 failed`. Add nothing to wire it up; registering
+  your asset/experience is enough for the harness to exercise it.
+
+**Performance rules (this is a mobile target):**
+- **No per-instance dynamic `PointLight`s.** Each one forces a scene-wide shader
+  recompile hitch on add (the campfire/train lag). Fake glow with an emissive
+  material (`glow()` in `palette.ts`) or share ONE light.
+- **Fresh geometry/materials per asset instance.** `disposeTree` frees a level's
+  geometry/materials on exit; a shared singleton would be disposed out from under
+  the next level. `createAsset` already returns fresh — don't cache and reuse.
+- **Throwables use the engine projectile** (`projectile` on the carryable /
+  `ctx.launchProjectile`), not a per-level `setInterval`/updater — one physics
+  path, identical in every level.
+
+---
+
+## 10. Build / deploy
 
 ```sh
 npm run dev          # localhost:5173 (Vite proxies /api/tts → :37777)
