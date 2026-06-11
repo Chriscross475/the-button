@@ -235,7 +235,11 @@ export function buildExitRoom(ctx: GameContext, opts: ExitRoomOpts): RoomBounds 
     () => ctx.advance(new THREE.Vector3(cx, 0, cz)), // becomes the next start room, in place
     { glow: false }, // matte — no shine on the end button
   );
-  ctx.addObstacle(button.obstacle);
+  // The button's collider is 2D (XZ). For an ELEVATED cabin it would block the
+  // open ground directly below — an invisible wall you bump into walking under
+  // the house. The button up top is only reachable from the cabin floor anyway,
+  // so skip its collider when raised.
+  if (cy <= 0.1) ctx.addObstacle(button.obstacle);
 
   return { minX: cx - hw, maxX: cx + hw, minZ: cz - hd, maxZ: cz + hd, floorY: cy };
 }

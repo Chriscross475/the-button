@@ -169,6 +169,10 @@ export interface CarryCtx {
    *  floor/wall bounce, then it settles). Lets a kept item's throw physics live
    *  with the object instead of a level's updater. */
   launchProjectile: (object: THREE.Object3D, velocity: THREE.Vector3, opts?: { radius?: number; restitution?: number; gravity?: number; onLand?: (impactSpeed: number) => boolean; onSettle?: () => void }) => void;
+  /** A crush (train) hit the player: if a held item shields them, apply it
+   *  (a duck explodes + is consumed; a basketball cushions + stays) and return
+   *  true. False → nothing shielded them, so the caller kills the player. */
+  useTrainShield: () => boolean;
 }
 
 /** Companions & followers. */

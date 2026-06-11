@@ -184,6 +184,7 @@ export class Game {
       heldKind: (side) => this.carry.inHand(side),
       putInHand: (side, c) => this.carry.putInHand(side, c),
       launchProjectile: (object, velocity, opts) => this.carry.launch(object, velocity, opts),
+      useTrainShield: () => this.carry.useTrainShield(),
       setCompanion: (mesh, baseY = 0) => {
         if (this.companion) this.scene.remove(this.companion);
         this.scene.add(mesh); // on the scene → survives level transitions
@@ -583,13 +584,24 @@ export class Game {
     if (Math.hypot(dx, dz) <= it.radius) it.onUse();
   }
 
-  // True if a tap at screen (x,y) lands on the companion mesh (any follower).
+  // True if a tap at screen (x,y) lands on the companion (any follower).
   private tapHitsCompanion(x: number, y: number): boolean {
-    if (!this.companion) return false;
+    const c = this.companion;
+    if (!c) return false;
     this.tapNdc.set((x / window.innerWidth) * 2 - 1, -((y / window.innerHeight) * 2 - 1));
     this.tapRay.setFromCamera(this.tapNdc, this.camera);
-    const hits = this.tapRay.intersectObject(this.companion, true);
-    return hits.length > 0 && hits[0].distance < 9;
+    const hits = this.tapRay.intersectObject(c, true);
+    if (hits.length > 0 && hits[0].distance < 9) return true;
+    // Fallback: the walking basket is thin + sits a few metres off, so a precise
+    // mesh hit is fiddly. Accept a tap near its projected body centre while it's
+    // close enough to interact with — so "tap it to stop following" is reliable.
+    const center = c.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.9, 0));
+    if (center.distanceTo(this.camera.position) > 9) return false;
+    center.project(this.camera);
+    if (center.z > 1) return false; // behind the camera
+    const sx = (center.x * 0.5 + 0.5) * window.innerWidth;
+    const sy = (-center.y * 0.5 + 0.5) * window.innerHeight;
+    return Math.hypot(sx - x, sy - y) < 90; // ~90px halo around the follower
   }
 
   private onFirstInput(): void {
@@ -695,7 +707,7 @@ export class Game {
       // crossed the rim plane on the way DOWN, within the rim's (forgiving) radius
       if (py > this.rimWorld.y && y <= this.rimWorld.y) {
         const d = Math.hypot(obj.position.x - this.rimWorld.x, obj.position.z - this.rimWorld.z);
-        if (d < this.scoringRimRadius * 1.4) {
+        if (d < this.scoringRimRadius * 1.9) {
           this.hoopScore++;
           this.drawHoopLabel();
           sparkle();

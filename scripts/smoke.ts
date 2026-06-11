@@ -186,7 +186,7 @@ for (const exp of allExperiences()) {
     setLanding: stub, setFlightWalls: stub, launchPlayer: stub, die: stub, isAirborne: stub,
     isDead: stub, addCarryable: stub, removeCarryable: stub, addTarget: stub, removeTarget: stub,
     isHolding: stub, consumeHeld: stub, heldKind: stub, putInHand: stub, launchProjectile: stub,
-    setCompanion: stub, setScoringHoop: stub, setWheel: stub, setControlMode: stub,
+    useTrainShield: stub, setCompanion: stub, setScoringHoop: stub, setWheel: stub, setControlMode: stub,
   };
   const ns = attachNamespaces(flat);
   const checks: [string, boolean][] = [
@@ -199,6 +199,7 @@ for (const exp of allExperiences()) {
     ['physics.die', ns.physics.die === flat.die],
     ['carry.addCarryable', ns.carry.addCarryable === flat.addCarryable],
     ['carry.launchProjectile', ns.carry.launchProjectile === flat.launchProjectile],
+    ['carry.useTrainShield', ns.carry.useTrainShield === flat.useTrainShield],
     ['companions.setScoringHoop', ns.companions.setScoringHoop === flat.setScoringHoop],
     ['modes.setWheel', ns.modes.setWheel === flat.setWheel],
   ];

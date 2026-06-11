@@ -105,6 +105,9 @@ export function revealBasketball(ctx: GameContext): void {
     // it stays grabbable and flies the same (gravity + bounce) in every level.
     persistent: true,
     projectile: { radius: BALL_R, restitution: 0.55, gravity: GRAV },
+    // Like a duck, the ball cushions a train hit — but it isn't spent: it bounces
+    // you clear and stays in hand (no feather burst).
+    trainShield: { consume: false },
     onGrab: () => {
       mode = 'held';
       started = true; // the clock starts when you first pick the ball up
@@ -115,16 +118,18 @@ export function revealBasketball(ctx: GameContext): void {
       ctx.camera.getWorldDirection(fwd);
       const v = fwd.clone().multiplyScalar(9 + charge * 7);
       v.y += 1.6; // a bit of arc
-      if (currentGeneration() === bornGen) {
-        // Still in the hoops room: the level's own physics (scoring + the room
-        // walls + ceiling) handles the shot.
+      if (currentGeneration() === bornGen && !ended) {
+        // Still mid-round in the hoops room: the level's own physics (wall hoop
+        // scoring + the room walls + ceiling) handles the shot.
         throwPos.copy(ctx.playerPos());
         vel.copy(v);
         mode = 'flying';
         scored = false;
       } else {
-        // Carried into another level: the ball's OWN projectile physics fly it —
-        // gravity + bounce, settling on the ground — exactly as anywhere else.
+        // Round's over (you won the walking basket, which now follows you) OR
+        // you're in another level: fly the ball as a global projectile so the
+        // GLOBAL scoring hoop (the follower basket's rim) counts it — and so its
+        // physics are identical everywhere.
         ctx.launchProjectile(ball, v, { radius: BALL_R, restitution: 0.55, gravity: GRAV });
       }
     },

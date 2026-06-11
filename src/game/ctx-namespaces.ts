@@ -64,6 +64,7 @@ export function attachNamespaces(flat: GameContextFlat): GameContext {
     heldKind: c.heldKind,
     putInHand: c.putInHand,
     launchProjectile: c.launchProjectile,
+    useTrainShield: c.useTrainShield,
   };
   ctx.companions = {
     setCompanion: c.setCompanion,

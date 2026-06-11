@@ -136,6 +136,8 @@ export function spawnDuck(ctx: GameContext, x: number, z: number, opts: DuckOpts
     object,
     persistent: true, // carried in hand, it comes to the next level with everything
     onEnterLevel: installHooks, // re-establish wander + axe-target in the new level
+    trainShield: { consume: true }, // clutch a duck → a train knocks you clear…
+    onCrush: die, // …and the duck bursts into feathers (its own death reaction)
     heldDist: 0.9,
     onGrab: () => { duck.held = true; quack(); },
     onRelease: () => { duck.held = false; },

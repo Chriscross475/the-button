@@ -46,6 +46,14 @@ export interface Carryable {
    *  after it's CARRIED into a fresh level — the engine calls this once the new
    *  level is built, so a carried object arrives fully alive, not as a dead prop. */
   onEnterLevel?: () => void;
+  /** Held, this item SHIELDS the player from an otherwise-lethal crush (a train):
+   *  they get knocked clear instead of dying. `consume: true` uses the shield up
+   *  (a duck — it explodes; see onCrush); `false` keeps it (a basketball just
+   *  cushions and stays in hand). */
+  trainShield?: { consume: boolean };
+  /** Fired when a `trainShield: { consume: true }` item is used up by a crush —
+   *  the object's own reaction (e.g. the duck bursts into feathers + despawns). */
+  onCrush?: () => void;
 }
 
 export interface CombineTarget {
@@ -102,6 +110,10 @@ export interface Carry {
   /** Remove one held item of this kind (its mesh + the hand). Returns true if one
    *  was consumed (e.g. a duck crushed to soften a train). */
   consume(kind: string): boolean;
+  /** A crush (a train) hit the player: if a held item shields them, apply it
+   *  (consume + onCrush for a duck; leave a basketball in hand) and return true.
+   *  Return false → nothing shielded them (the caller should kill the player). */
+  useTrainShield(): boolean;
 }
 
 type Side = 'left' | 'right';
@@ -352,6 +364,24 @@ export function createCarry(
       }
       return false;
     },
+    useTrainShield: () => {
+      for (const side of ['right', 'left'] as Side[]) {
+        const it = hands[side].item;
+        if (!it?.trainShield) continue;
+        if (it.trainShield.consume) {
+          it.onCrush?.(); // the duck bursts into feathers (its own reaction also clears the hand)
+          if (hands[side].item === it) { // onCrush didn't already remove it → spend it now
+            it.object.parent?.remove(it.object);
+            const i = carryables.indexOf(it);
+            if (i >= 0) carryables.splice(i, 1);
+            hands[side].item = null;
+            label(side);
+          }
+        }
+        return true; // a basketball just cushions and stays in hand
+      }
+      return false;
+    },
   };
 
   const grabNdc = new THREE.Vector2();
@@ -455,8 +485,12 @@ export function createCarry(
       if (keep !== true && hands[side].item === item) releaseHand(side);
       return;
     }
-    if (elapsed < TAP_MS && item.onTap) {
-      item.onTap(); // stays in hand (e.g. swing)
+    // A quick tap is a press or a tool-swing, NEVER a throw. Otherwise tapping to
+    // press a button (mobile, where the same touch reaches the carry system) would
+    // fling a held reward — your money — out of your hand. Throwing needs a real
+    // hold-and-release (elapsed >= TAP_MS).
+    if (elapsed < TAP_MS) {
+      if (item.onTap) item.onTap(); // e.g. an axe swing; otherwise the item just stays put
       return;
     }
     const charge = Math.min(1, elapsed / 1000);

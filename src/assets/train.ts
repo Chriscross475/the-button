@@ -110,21 +110,22 @@ interface TrainCtx {
   playerPos(): THREE.Vector3;
   isAirborne(): boolean;
   isDead(): boolean;
-  isHolding(kind: string): boolean;
-  consumeHeld(kind: string): boolean;
+  /** A held shield (duck/basketball) cushions the hit; the object decides whether
+   *  it's spent (duck → feathers) or kept (basketball). True = shielded. */
+  useTrainShield(): boolean;
   launchPlayer(vel: THREE.Vector3): void;
   die(cause?: string): void;
 }
 
-/** If a train at `pos` is on top of the player, hit them: knock them clear with
- *  `knockback` (a duck in hand cushions it and is consumed), otherwise flatten
- *  them. Returns true if it connected, so callers can set a hit cooldown. */
+/** If a train at `pos` is on top of the player, hit them: a held shield (a duck
+ *  in hand bursts into feathers; a basketball just cushions and stays) knocks
+ *  them clear with `knockback`; otherwise it flattens them. Returns true if it
+ *  connected, so callers can set a hit cooldown. */
 export function trainStrike(ctx: TrainCtx, pos: THREE.Vector3, knockback: THREE.Vector3): boolean {
   if (ctx.isAirborne() || ctx.isDead()) return false;
   const p = ctx.playerPos();
   if (Math.abs(p.x - pos.x) >= 1.6 || Math.abs(p.z - pos.z) >= 1.9) return false;
-  if (ctx.isHolding('duck')) {
-    ctx.consumeHeld('duck');
+  if (ctx.useTrainShield()) {
     ctx.launchPlayer(knockback.clone());
   } else {
     ctx.die('train');

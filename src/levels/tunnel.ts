@@ -30,7 +30,7 @@ defineCombine('axe', 'tunnel-plank', () => {
 const WALL_T1 = -14; // near tunnel, close to spawn (mouth faces +Z) — the TRAP
 const HOUSE_Z = 38; // elevated cabin, way down the far end, beside tunnel 2
 const HOUSE_Y = 9;
-const WALL_T2 = 50; // far tunnel, right beside the cabin (mouth faces −Z) — the SOLUTION
+const WALL_T2 = 57; // far tunnel, set back behind the cabin (mouth faces −Z) — the SOLUTION
 
 const TRACK_X = [-1.4, 1.4];
 const TRAIN_SPEED = 34;
