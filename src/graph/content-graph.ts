@@ -138,7 +138,7 @@ const nodes: GNode[] = [
   { id: 'reward:golden-ball', label: 'The Golden Ball', kind: 'reward',
     note: 'Score 8+ and the ball turns to gold in your hands — a keepsake.' },
   { id: 'reward:baby-wolf', label: 'The Baby Wolf', kind: 'reward',
-    note: 'Spare and feed the duck-room wolf and a pup follows you out across the levels.' },
+    note: 'Spare and feed the duck-room wolf and a pup follows you out. It snacks on stray ducks and grows — feed it ten and it is mother-sized, and turns on you.' },
   { id: 'reward:unicycle', label: 'The Unicycle', kind: 'reward',
     note: 'Won atop the big top: a one-wheeled way to move — faster, and a menace to steer.' },
   { id: 'reward:golden-orb', label: 'The Golden Orb', kind: 'reward',
@@ -218,6 +218,13 @@ const edges: GEdge[] = [
   // Held cushions against a train.
   { from: 'item:duck', to: 'mech:train', kind: 'shields', label: 'cushions (bursts)' },
   { from: 'item:basketball', to: 'mech:train', kind: 'shields', label: 'cushions (kept)' },
+
+  // ── Newer cross-connections (the funny ones) ──
+  { from: 'item:money', to: 'mech:wolf-gate', kind: 'combine', label: 'bribe' }, // it can't spend it; it takes it anyway
+  { from: 'item:duck', to: 'mech:scoring-hoop', kind: 'reward', label: 'dunk → feathers' }, // a duck through the hoop scores + bursts
+  { from: 'item:basketball', to: 'mech:trampoline', kind: 'enables', label: 'trick shot' }, // bounce it in for bonus
+  { from: 'item:duck', to: 'reward:baby-wolf', kind: 'enables', label: 'feeds it — 10 = doom' }, // the pet eats stray ducks & grows
+  { from: 'lvl:circus', to: 'lvl:ducks', kind: 'portal', label: "the void's floor" }, // fall off the walkway → the duck pens
 ];
 
 export const CONTENT_GRAPH: ContentGraph = { nodes, edges };

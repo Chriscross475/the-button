@@ -202,6 +202,19 @@ export function revealCircus(ctx: GameContext): void {
     },
   );
 
+  // Miss the walkway and fall into the void — and the void has a destination. You
+  // drop through the floor of the world into the duck pens, rather than dying.
+  // Caught at y < -3, before the engine's void-death at -4.
+  let fell = false;
+  addUpdater(() => {
+    if (fell) return true;
+    if (!ctx.isAirborne() || ctx.playerPos().y > -3) return false;
+    fell = true;
+    ctx.narrate('Down through the floor of the world. The void, it turns out, has a basement — and the basement is full of ducks. You will fit right in.', 6500, { priority: true });
+    ctx.advanceTo('ducks');
+    return true;
+  });
+
   // ── Bounce: standing on a trampoline flings you toward the next (steer to
   //    land on it). Reaching the last one arcs you to the top platform. ──
   const PH = CONFIG.PLAYER_HEIGHT;

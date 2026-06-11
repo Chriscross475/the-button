@@ -8,8 +8,8 @@ import { setCounter, hideCounter } from '../ui/counter';
 import { defineCombine, type Carryable, type CombineTarget } from '../game/combine';
 import { createAsset } from '../assets';
 import { spawnFeathers } from '../assets/effects';
-import { discover } from '../graph/progress';
 import { spawnMoney as spawnCash } from '../objects/money';
+import { spawnBabyWolf as spawnWolfPup } from '../objects/wolf';
 import { rewardPlinth as kitRewardPlinth } from './scaffold';
 import { buildExitRoom } from './exit-room';
 import { vo } from '../audio/vo-shared';
@@ -84,6 +84,16 @@ axeFence('farm-fence');
 axeFence('saw-fence');
 axeFence('stand-fence');
 axeFence('wolf-fence');
+// Bribe the wolf: hold money, use it on the wolf gate. It is a wolf; it cannot
+// spend money. It takes it anyway — and lets you pass, fed or not. Money is gone.
+const wolfBribe = new WeakMap<CombineTarget, () => void>();
+defineCombine('money', 'wolf-fence', (held, t, env) => {
+  const bribe = wolfBribe.get(t);
+  if (!bribe) return;
+  env.carry.removeCarryable(held);
+  held.object.parent?.remove(held.object); // it pockets your cash (it has no pockets)
+  bribe();
+});
 
 export function revealDucks(ctx: GameContext): void {
   const root = ctx.levelRoot;
@@ -145,6 +155,8 @@ export function revealDucks(ctx: GameContext): void {
     const duck: Duck = { group, held: false, flying: false, falling: false, homed: false, carry, bounds };
     ducks.push(duck);
     ctx.addCarryable(carry); // the global carry handles grab / hold / throw
+    group.userData.kind = 'duck'; // so a baby wolf companion can snack on these too
+    group.userData.carryable = carry;
 
     let heading = Math.random() * Math.PI * 2;
     let waddleT = Math.random() * Math.PI * 2;
@@ -514,11 +526,7 @@ export function revealDucks(ctx: GameContext): void {
 
   const spawnBabyWolf = (pos: THREE.Vector3) => {
     rewardPlinth(pos);
-    const pup = createAsset('wolf');
-    pup.scale.setScalar(0.4);
-    pup.position.set(pos.x, 0.95, pos.z); // perched on the plinth until you approach
-    ctx.setCompanion(pup); // it follows you AND survives level transitions
-    discover('reward:baby-wolf');
+    spawnWolfPup(ctx, pos); // THE baby wolf: follows you, eats stray ducks, grows, and eventually turns
   };
 
   const spawnMoney = (pos: THREE.Vector3) => {
@@ -664,6 +672,19 @@ export function revealDucks(ctx: GameContext): void {
         ctx.narrate('You break the gate on a half-starved wolf. It does not thank you. It does not hesitate.', 4000, { priority: true });
         ctx.die('wolf');
       }
+    });
+    // Pay the wolf off instead: the gate opens, fed or not, and it leaves with you.
+    wolfBribe.set(wolfTarget, () => {
+      if (wolfFreed || resolved) return;
+      root.remove(wolfFence.group);
+      for (const o of wolfFence.obstacles) ctx.removeObstacle(o);
+      ctx.removeTarget(wolfTarget);
+      pop();
+      thud();
+      wolfFreed = true;
+      if (wolf) ctx.setCompanion(wolf);
+      ctx.narrate('It cannot spend a single note of it. It takes the money anyway, and falls in beside you — a creditor now, as well as a wolf.', 6500, { priority: true });
+      resolve('wolf-freed');
     });
   };
 

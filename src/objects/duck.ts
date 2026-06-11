@@ -178,5 +178,12 @@ export function spawnDuck(ctx: GameContext, x: number, z: number, opts: DuckOpts
   ctx.addCarryable(carry);
   installHooks(); // wander + axe-target for the level it's spawned in
 
+  // Tags so OTHER objects can recognise a duck in the world: the scoring hoop
+  // bursts it on a dunk (→ feathers + points), the baby wolf eats + deregisters
+  // it. Behaviour stays on the duck; others just call these.
+  object.userData.kind = 'duck';
+  object.userData.carryable = carry;
+  object.userData.onScored = die;
+
   return duck;
 }

@@ -110,6 +110,8 @@ export interface Carry {
   /** The objects currently in flight (thrown projectiles), for hit-testing
    *  against e.g. a scoring hoop. */
   looseObjects(): THREE.Object3D[];
+  /** Stop flying an object (e.g. it scored + burst, so don't keep simulating it). */
+  dropLoose(object: THREE.Object3D): void;
   /** The kind held in a hand, or null. */
   inHand(side: 'left' | 'right'): string | null;
   /** True if either hand holds an item of this kind. */
@@ -224,10 +226,11 @@ export function createCarry(
       l.vel.y -= l.gravity * dt;
       const p = l.object.position;
       p.addScaledVector(l.vel, dt);
-      if (p.x > b.maxX - l.radius) { p.x = b.maxX - l.radius; l.vel.x = -l.vel.x * l.rest; }
-      else if (p.x < b.minX + l.radius) { p.x = b.minX + l.radius; l.vel.x = -l.vel.x * l.rest; }
-      if (p.z > b.maxZ - l.radius) { p.z = b.maxZ - l.radius; l.vel.z = -l.vel.z * l.rest; }
-      else if (p.z < b.minZ + l.radius) { p.z = b.minZ + l.radius; l.vel.z = -l.vel.z * l.rest; }
+      const ud = l.object.userData as { bounced?: boolean };
+      if (p.x > b.maxX - l.radius) { p.x = b.maxX - l.radius; l.vel.x = -l.vel.x * l.rest; ud.bounced = true; }
+      else if (p.x < b.minX + l.radius) { p.x = b.minX + l.radius; l.vel.x = -l.vel.x * l.rest; ud.bounced = true; }
+      if (p.z > b.maxZ - l.radius) { p.z = b.maxZ - l.radius; l.vel.z = -l.vel.z * l.rest; ud.bounced = true; }
+      else if (p.z < b.minZ + l.radius) { p.z = b.minZ + l.radius; l.vel.z = -l.vel.z * l.rest; ud.bounced = true; }
       // Bounce off the level's circular obstacles (cabin walls, posts, trees) so
       // a thrown object can't ghost through interior geometry.
       for (const o of getObstacles()) {
@@ -252,6 +255,7 @@ export function createCarry(
         l.vel.y = -l.vel.y * l.rest;
         l.vel.x *= 0.82;
         l.vel.z *= 0.82;
+        ud.bounced = true; // off the floor counts as a trick-shot carom too
       }
       l.object.rotation.x += l.vel.z * dt * 0.4;
       l.object.rotation.z -= l.vel.x * dt * 0.4;
@@ -283,6 +287,7 @@ export function createCarry(
     held: () => hands.right.item ?? hands.left.item,
     launch: (object, velocity, opts) => {
       dropLoose(object);
+      (object.userData as { bounced?: boolean }).bounced = false; // fresh throw — a clean shot until it caroms
       loose.push({
         object,
         vel: velocity.clone(),
@@ -357,6 +362,7 @@ export function createCarry(
       }
     },
     looseObjects: () => loose.map((l) => l.object),
+    dropLoose,
     inHand: (side) => hands[side].item?.kind ?? null,
     holding: (kind) => hands.left.item?.kind === kind || hands.right.item?.kind === kind,
     consume: (kind) => {

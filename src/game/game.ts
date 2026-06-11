@@ -118,6 +118,7 @@ export class Game {
   private scoringRimRadius = 0.34;
   private scoringLabel: THREE.Sprite | null = null;
   private hoopScore = 0;
+  private trickCd = 0; // cooldown so the trick-shot narrator line doesn't spam
   private readonly hoopPrevY = new Map<THREE.Object3D, number>();
   private readonly rimWorld = new THREE.Vector3();
   private controlMode: ControlMode | null = null; // e.g. operating the slingshot
@@ -644,6 +645,7 @@ export class Game {
     }
 
     this.carry.tick(dt, this.mode === 'play' && this.started && !this.paused && !inControl);
+    if (this.trickCd > 0) this.trickCd -= dt;
     this.updateCompanion(dt);
     this.updateHoopScore();
     this.updateWheelVisual();
@@ -662,6 +664,11 @@ export class Game {
   private updateCompanion(dt: number): void {
     const c = this.companion;
     if (!c || this.mode !== 'play' || !this.started) return;
+    // A companion that removed itself from the scene (the baby wolf once it turns
+    // on you) is dropped so we stop driving a ghost.
+    if (!c.parent) { this.companion = null; return; }
+    // Per-frame behaviour that lives ON the companion (the wolf eating ducks).
+    (c.userData as { companionTick?: (dt: number) => void }).companionTick?.(dt);
     const p = this.camera.position;
     const dx = p.x - c.position.x;
     const dz = p.z - c.position.z;
@@ -710,9 +717,17 @@ export class Game {
       if (py > this.rimWorld.y && y <= this.rimWorld.y) {
         const d = Math.hypot(obj.position.x - this.rimWorld.x, obj.position.z - this.rimWorld.z);
         if (d < this.scoringRimRadius * 1.9) {
-          this.hoopScore++;
+          const ud = obj.userData as { bounced?: boolean; onScored?: () => void };
+          const trick = ud.bounced === true; // it caromed off something before going in
+          this.hoopScore += trick ? 2 : 1;
           this.drawHoopLabel();
           sparkle();
+          if (trick && this.trickCd <= 0) {
+            this.trickCd = 7;
+            narrate('Off the bounce. A trick shot. Kids today would rather watch this than the circus — five lads in matching shirts are weeping somewhere with pride.', 6500, { interruptible: true });
+          }
+          // A duck that dunks bursts into feathers (its own reaction); the ball keeps bouncing.
+          if (ud.onScored) { ud.onScored(); this.carry.dropLoose(obj); this.hoopPrevY.delete(obj); }
         }
       }
     }
