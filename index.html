@@ -9,6 +9,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#f4f4f2" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
     <title>The Button</title>
     <style>
       * {
@@ -200,5 +202,10 @@
     </div>
     <div id="fade"></div>
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      // PWA: register only in production (dev serves at /, prod at /button/).
+      if ('serviceWorker' in navigator && location.pathname.startsWith('/button/'))
+        addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+    </script>
   </body>
 </html>
