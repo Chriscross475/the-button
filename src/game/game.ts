@@ -393,6 +393,7 @@ export class Game {
     if (this.pendingLevel) return;
     const exp = getExperience(expId);
     if (!exp) {
+      console.warn(`[advanceTo] unknown experience ID "${expId}" — falling back to a random experience`);
       this.runAdvance(pickExperience(), buttonPos);
       return;
     }
