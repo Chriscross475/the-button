@@ -95,7 +95,7 @@ random):
 
 - **Gag** — a small in-room effect. Just `{ id, weight, run(ctx) }`.
   (`weight: 0` keeps an experience OUT of the button's random pool — it's then
-  only reachable via `advanceTo(id)`, like the slingshot yard from the tunnel.)
+  only reachable via `advanceTo(id)` — a one-way hand-off from another room.)
 - **Level** — opens the white room into a full scene. Use **`defineLevel()`**
   (`src/levels/scaffold.ts`), which opens the room, hides the white shell, guards
   double-reveal, then runs your `build(ctx)`.
@@ -128,13 +128,14 @@ just `build`.
 ### The level kit (`src/levels/scaffold.ts`) — reuse, don't re-derive
 Shared primitives so a new level is *assembly*, not geometry from scratch:
 - `groundPlane()` — dark floor with the z-fight-safe polygonOffset.
-- `walkThroughPortal(ctx, { zone, to, ref, entry? })` — registers the one-shot
-  updater that fires `advanceTo` when the player enters `zone`. **Use this for
-  every walk-through portal** (tunnel↔tunnel, crack↔forest) — don't hand-roll
-  the updater + bounds check.
+- `walkThroughPortal(ctx, { zone, to?, ref, entry? })` — registers the one-shot
+  updater that ends the room when the player enters `zone`: on to a random next
+  room, or with `to`, a one-way hand-off to that one. **Use this for every
+  walk-through exit** (the tunnel's crack and side tunnel, the circus void) —
+  don't hand-roll the updater + bounds check.
 - `rewardPlinth(root, pos)` — the stone base/column/cap a prize sits on.
 - `crackedWall(root, pos, facingY)` — a dark recess + scattered rubble marking a
-  walk-through hole; pair with `walkThroughPortal` + a `ctx.entry` spawn.
+  walk-through hole; pair with `walkThroughPortal`.
 When two levels need the same shape, **add a kit primitive** rather than copy it.
 
 ---
@@ -171,13 +172,24 @@ through getters so they never go stale. The 9 sections (`ctx.<namespace>` → me
 
 ## 5. Transitions, exits & portals
 
+**The core rule: every room has a start and an end.** You press a button, you
+get a room, you find its way out, and the way out leads to a random next room.
+A room may have several ways out (the tunnel has three), and a small gag may
+end where it started (the button comes back). What you carry in can open other
+options or endings inside a room — the axe opens the tunnel's side passage, a
+roast duck doubles the duck room's payout — but **rooms never link back to each
+other.** No walking from A to B and back to A, and no room changing how another
+room behaves. A rare one-way hand-off into a specific room (the circus void
+drops you in the duck pens) is fine.
+
 - The new room's button is always at `(0,0,-2)`. `advance(buttonPos)` keeps the
   player's offset from `buttonPos`; **a bare `advance()` stands them clear** of
   the new button (don't pass the player's own position).
 - **Button exit**: `spawnPedestalButton(root, pos, () => ctx.advance(pos))`.
-- **Walk-through portal** (e.g. slingshot→tunnel): `walkThroughPortal(ctx, {
-  zone, to, ref, entry })` (§3 kit). The destination reads `ctx.entry` and calls
-  `ctx.spawnAt(ground, yaw)` to step the player out of its matching portal.
+- **Walk-through exit** (e.g. the tunnel's crack): `walkThroughPortal(ctx, {
+  zone, ref })` (§3 kit) → a random next room. Add `to` (+ `entry`) for a one-way
+  hand-off; the destination may read `ctx.entry` and call `ctx.spawnAt(ground,
+  yaw)` to place the player.
 - **Entry-spawn yaw** (radians, world): `0` faces −Z, `π` faces +Z, `π/2` faces
   −X, `3π/2` faces +X. (Cylinder convention `x=r·sinθ, z=r·cosθ` — the circus
   opening bug came from forgetting this.)

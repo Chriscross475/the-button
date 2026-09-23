@@ -29,7 +29,7 @@ export interface GNode {
 }
 
 export type EdgeKind =
-  | 'portal' // walk between two levels (a crack, a tunnel mouth)
+  | 'portal' // a ONE-WAY hand-off from one level into a specific other (never back)
   | 'spawns' // a level introduces an item
   | 'combine' // hold tool + use on target → outcome (a defineCombine)
   | 'makes' // a combine/action produces an item/effect
@@ -44,7 +44,7 @@ export interface GEdge {
   kind: EdgeKind;
   /** Short edge caption (the combine outcome, the unlock condition). */
   label?: string;
-  /** Portals are walkable both ways; drawn without a direction arrow. */
+  /** Drawn without a direction arrow. (No current edge uses it: rooms don't link back.) */
   bidirectional?: boolean;
 }
 
@@ -58,9 +58,9 @@ const nodes: GNode[] = [
   { id: 'lvl:hub', label: 'The White Room', kind: 'level', keys: { exp: ['hub'] },
     note: 'Where every run begins. One button; press it and the room becomes something else.' },
   { id: 'lvl:forest', label: 'The Forest', kind: 'level', keys: { exp: ['forest'] },
-    note: 'Walls topple onto a wide wood. An axe waits in a stump; ducks roam. A crack in the east wall leads on.' },
+    note: 'Walls topple onto a wide wood. An axe waits in a stump; ducks roam. The cabin door is planked shut.' },
   { id: 'lvl:tunnel', label: 'The Tunnels', kind: 'level', keys: { exp: ['tunnel'] },
-    note: 'A storm-lit line of train tunnels. Time the trains; ride the right one onto the cabin. A lever stops them.' },
+    note: 'A storm-lit line of train tunnels. Time the trains; ride the right one onto the cabin. Or find the lever that stops them, and another way out.' },
   { id: 'lvl:slingshot', label: 'The Trainyard', kind: 'level', keys: { exp: ['slingshot'] },
     note: 'A rotating slingshot that fires the very trains the tunnels face. Reached only on foot, up from the tunnels.' },
   { id: 'lvl:basketball', label: 'The Free-Throw Room', kind: 'level', keys: { exp: ['basketball'] },
@@ -92,7 +92,7 @@ const nodes: GNode[] = [
   { id: 'item:cooked-duck', label: 'Roast Duck', kind: 'item', keys: { item: ['cooked-duck'] },
     note: 'A duck cooked on a campfire. Carry it to the duck-room food stand to double the payout.' },
   { id: 'item:pickaxe', label: 'The Pickaxe', kind: 'item', keys: { item: ['pickaxe'] },
-    note: "Deep in a tunnel. Smashes the cracked wall (to the forest) and the trainyard's stone block." },
+    note: "Deep in a tunnel, safe to fetch only once the trains stop. Smashes the cracked wall — a way out." },
   { id: 'item:key', label: 'The Key', kind: 'item', keys: { item: ['key'] },
     note: 'Hidden behind your start in the corridor. Spends itself opening the one locked door.' },
   { id: 'item:money', label: 'The Money', kind: 'item', keys: { item: ['money'] },
@@ -104,7 +104,7 @@ const nodes: GNode[] = [
   { id: 'mech:campfire', label: 'Campfire', kind: 'mechanic', keys: { target: ['campfire'] },
     note: 'Left where a tree falls. Combine a duck with it to roast one.' },
   { id: 'mech:train', label: 'Trains', kind: 'mechanic',
-    note: 'Fired from the trainyard down whichever tunnel it aims at. A hit is lethal — unless you carry a cushion.' },
+    note: 'They come out of the tunnels when you step in. A hit is lethal — unless you carry a cushion.' },
   { id: 'mech:lever', label: 'The Lever', kind: 'mechanic',
     note: 'Hidden by the far tunnel. Pulling it halts every train.' },
   { id: 'mech:slingshot-turret', label: 'The Slingshot', kind: 'mechanic',
@@ -114,7 +114,9 @@ const nodes: GNode[] = [
   { id: 'mech:stone-block', label: 'Stone Block', kind: 'mechanic', keys: { target: ['stone-block'] },
     note: 'Seals a trainyard tunnel. Only a pickaxe clears it.' },
   { id: 'mech:tunnel-plank', label: 'Planked Tunnel', kind: 'mechanic', keys: { target: ['tunnel-plank'] },
-    note: 'A boarded-up side tunnel. An axe opens it onward.' },
+    note: 'A boarded-up side tunnel. Bring an axe and it opens onward.' },
+  { id: 'mech:tunnel-crack', label: 'The Cracked Wall', kind: 'mechanic',
+    note: 'A split slab on the side of the tunnel run. A pickaxe breaks it open — daylight, and a way out.' },
   { id: 'mech:scoring-hoop', label: 'Scoring Hoop', kind: 'mechanic',
     note: 'A rim that counts throws dropped through it — on the wall, then on the basket you carry.' },
   { id: 'mech:door-lock', label: 'The Locked Door', kind: 'mechanic', keys: { target: ['door-lock'] },
@@ -152,10 +154,6 @@ const nodes: GNode[] = [
 ];
 
 const edges: GEdge[] = [
-  // Portals (walkable both ways).
-  { from: 'lvl:forest', to: 'lvl:tunnel', kind: 'portal', label: 'a crack in the wall', bidirectional: true },
-  { from: 'lvl:tunnel', to: 'lvl:slingshot', kind: 'portal', label: 'up the tunnel', bidirectional: true },
-
   // Levels introduce items.
   { from: 'lvl:forest', to: 'item:axe', kind: 'spawns' },
   { from: 'lvl:forest', to: 'item:duck', kind: 'spawns' },
@@ -169,6 +167,7 @@ const edges: GEdge[] = [
   { from: 'lvl:tunnel', to: 'mech:train', kind: 'enables' },
   { from: 'lvl:tunnel', to: 'mech:lever', kind: 'enables' },
   { from: 'lvl:tunnel', to: 'mech:tunnel-plank', kind: 'enables' },
+  { from: 'lvl:tunnel', to: 'mech:tunnel-crack', kind: 'enables' },
   { from: 'lvl:slingshot', to: 'mech:slingshot-turret', kind: 'enables' },
   { from: 'lvl:slingshot', to: 'mech:wood-block', kind: 'enables' },
   { from: 'lvl:slingshot', to: 'mech:stone-block', kind: 'enables' },
@@ -181,8 +180,6 @@ const edges: GEdge[] = [
   { from: 'lvl:ducks', to: 'mech:wolf-gate', kind: 'enables' },
   { from: 'lvl:ducks', to: 'mech:food-stand', kind: 'enables' },
 
-  // The slingshot drives the trains the tunnel level obeys.
-  { from: 'mech:slingshot-turret', to: 'mech:train', kind: 'controls', label: 'aims & fires' },
   { from: 'mech:lever', to: 'mech:train', kind: 'controls', label: 'halts' },
 
   // Combines (hold tool → use on target). One per defineCombine.
@@ -205,8 +202,8 @@ const edges: GEdge[] = [
   { from: 'item:cooked-duck', to: 'item:money', kind: 'makes', label: 'doubles the stand' },
   { from: 'mech:food-stand', to: 'item:money', kind: 'makes', label: 'hidden till' },
 
-  // Tools open routes.
-  { from: 'item:pickaxe', to: 'lvl:forest', kind: 'enables', label: 'smash the crack' },
+  // Tools open other ways out.
+  { from: 'item:pickaxe', to: 'mech:tunnel-crack', kind: 'enables', label: 'smash it open' },
 
   // Reward path-ends.
   { from: 'lvl:basketball', to: 'reward:walking-basket', kind: 'reward', label: '18+ pts' },

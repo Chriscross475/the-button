@@ -96,21 +96,26 @@ export function defineReveal(
 
 // ── Level kit: recurring building blocks, so a new level is composition. ──
 
-/** A WALK-THROUGH PORTAL (a tunnel mouth, a cracked wall): when the player steps
- *  into `zone`, transition to level `to`, naming the portal via `entry` so the
- *  destination can emerge them from its matching opening (see ctx.spawnAt /
- *  ctx.entry). `ref` is the world point passed to advanceTo for the offset.
- *  Pair it with `if (ctx.entry === '…') ctx.spawnAt(...)` in the destination. */
+/** A WALK-THROUGH EXIT (a tunnel mouth, a cracked wall): when the player steps
+ *  into `zone`, the room ends. Leave `to` unset and it's an ordinary exit — on
+ *  to a random next room, like pressing an exit button. `ref` is the world point
+ *  the player's offset is kept from.
+ *
+ *  `to` names a fixed destination instead — a ONE-WAY hand-off (the circus void
+ *  drops you in the duck pens). Rooms never link back to each other: every room
+ *  has its start and its end(s), and nothing walks you back into the last one.
+ *  `entry` names the opening; the destination may read ctx.entry to place you. */
 export function walkThroughPortal(
   ctx: GameContext,
-  opts: { zone: (p: THREE.Vector3) => boolean; to: string; ref: THREE.Vector3; entry?: string },
+  opts: { zone: (p: THREE.Vector3) => boolean; to?: string; ref: THREE.Vector3; entry?: string },
 ): void {
   let gone = false;
   addUpdater(() => {
     if (gone) return true;
     if (opts.zone(ctx.playerPos())) {
       gone = true;
-      ctx.advanceTo(opts.to, opts.ref, opts.entry);
+      if (opts.to) ctx.advanceTo(opts.to, opts.ref, opts.entry);
+      else ctx.advance(opts.ref);
       return true;
     }
     return false;

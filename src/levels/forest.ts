@@ -6,7 +6,6 @@ import { pop, thud } from '../audio/sfx';
 import { createAsset } from '../assets';
 import { spawnDuck } from '../objects/duck';
 import { spawnAxe } from '../objects/axe';
-import { walkThroughPortal, crackedWall } from './scaffold';
 
 // A LEVEL — the forest. The walls topple and you're on a wide outdoor plain
 // dotted with trees, under a bright sky. Resolution: find the clearing with the
@@ -254,17 +253,6 @@ export function revealForest(ctx: GameContext): void {
   mkWall(0, HALF, Math.PI);        // south wall, faces -Z (inward)
   mkWall(-HALF, 0, Math.PI / 2);   // west wall, faces +X (inward)
   mkWall(HALF, 0, -Math.PI / 2);   // east wall, faces -X (inward)
-
-  // ── A cracked opening in the east wall — the passage back to the tunnel. ──
-  const CRACK_Z = 0;
-  crackedWall(root, new THREE.Vector3(HALF - 0.06, 0, CRACK_Z), -Math.PI / 2); // faces −X, into the forest
-  if (ctx.entry === 'crack') ctx.spawnAt(new THREE.Vector3(HALF - 3, 0, CRACK_Z), Math.PI / 2); // emerge from it
-  walkThroughPortal(ctx, {
-    zone: (p) => p.x > HALF - 1.5 && Math.abs(p.z - CRACK_Z) < 2.5,
-    to: 'tunnel',
-    ref: new THREE.Vector3(HALF, 0, CRACK_Z),
-    entry: 'crack',
-  });
 
   // A white room waiting in the clearing — walk in and press to go on.
   buildExitRoom(ctx, { center: EXIT, facing: 'posZ', solidWalls: true }); // walls block — only the door lets you in

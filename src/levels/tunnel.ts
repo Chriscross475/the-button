@@ -6,8 +6,8 @@ import { thunder, trainHorn, pop } from '../audio/sfx';
 import { createAsset, makeRng, trainStrike } from '../assets';
 import { registerInteractable } from '../interactables/system';
 import { defineCombine, type Carryable } from '../game/combine';
-import { feedsTunnel } from './slingshot-state';
 import { walkThroughPortal } from './scaffold';
+import { discover } from '../graph/progress';
 
 // Axe a planked-shut side tunnel open. The active tunnel level wires the hook.
 let breakSidePlank: (() => void) | null = null;
@@ -107,13 +107,6 @@ export function revealTunnel(ctx: GameContext): void {
   ];
   ctx.setRegions(baseRegions);
 
-  // Arriving from a connected portal: step OUT of the matching opening, facing in.
-  if (ctx.entry === 'slingshot') {
-    ctx.spawnAt(new THREE.Vector3(0, 0, WALL_T2 + 3), 0); // out of the far tunnel (tunnel 2), facing −Z down the run
-  } else if (ctx.entry === 'crack') {
-    ctx.spawnAt(new THREE.Vector3(40, 0, 12), Math.PI / 2); // out of the cracked wall on +X, facing −X into the run
-  }
-
   // Walls kill from the GROUND up to the roof, so a too-low launch that would
   // slip under the cabin between the pillars still splats against it. (The open
   // roof is the interior, away from these edge slabs, so the far tunnel's
@@ -181,8 +174,7 @@ export function revealTunnel(ctx: GameContext): void {
     const nearTrack = TRACK_X.reduce((a, b) => (Math.abs(player.x - a) <= Math.abs(player.x - b) ? a : b));
     const inT1 = inBore && player.z < WALL_T1 + 1 && player.z > WALL_T1 - 8;
     const inT2 = inBore && player.z > WALL_T2 - 1 && player.z < WALL_T2 + 8;
-    // Trains only run if the slingshot (the global source) is powered + aimed here.
-    if ((inT1 || inT2) && armed && !trainsStopped && feedsTunnel() && !ctx.isDead() && cooldown <= 0) {
+    if ((inT1 || inT2) && armed && !trainsStopped && !ctx.isDead() && cooldown <= 0) {
       armed = false;
       if (inT1) spawnTrain(nearTrack, WALL_T1, 1, LAUNCH_T1); // tunnel 1: knockback → ground
       else spawnTrain(nearTrack, WALL_T2, -1, LAUNCH_T2); // tunnel 2: arc toward the cabin
@@ -204,8 +196,8 @@ export function revealTunnel(ctx: GameContext): void {
     return false;
   });
 
-  // ── SECRET ROUTE: hidden lever stops the trains → grab the pickaxe from a
-  //    tunnel → smash the cracked wall → step through the hole into the forest. ──
+  // ── SECRET EXIT: hidden lever stops the trains → grab the pickaxe from a
+  //    tunnel → smash the cracked wall → step through the hole and on. ──
   const fwd = new THREE.Vector3();
   const dark = new THREE.MeshStandardMaterial({ color: 0x2a2d34, roughness: 1, flatShading: true });
 
@@ -289,6 +281,7 @@ export function revealTunnel(ctx: GameContext): void {
     const az = ctx.camera.position.z + fwd.z * 1.8;
     if (Math.hypot(ax - crackX, az - crackZ) > 3.4) return; // must be right at the crack
     crackBroken = true;
+    discover('mech:tunnel-crack');
     root.remove(slab);
     for (const ln of crackLines) root.remove(ln);
     pop();
@@ -299,12 +292,10 @@ export function revealTunnel(ctx: GameContext): void {
     root.add(hole);
     // a passage notch so you can step INTO the hole
     ctx.setRegions([...baseRegions, { minX: crackX, maxX: crackX + 5, minZ: crackZ - 2, maxZ: crackZ + 2, floorY: 0 }]);
-    ctx.narrate('The rock splinters and gives way — daylight beyond, and the smell of pine. A way through.', 6000, { priority: true });
+    ctx.narrate('The rock splinters and gives way. Daylight beyond. A way out that does not involve being hit by a train. Novel.', 6000, { priority: true });
     walkThroughPortal(ctx, {
       zone: (p) => p.x > crackX + 1.6 && Math.abs(p.z - crackZ) < 2.2,
-      to: 'forest',
-      ref: new THREE.Vector3(crackX, 0, crackZ),
-      entry: 'crack', // step through → the forest, out its crack
+      ref: new THREE.Vector3(crackX, 0, crackZ), // step through → on to the next room
     });
   };
 
@@ -318,17 +309,8 @@ export function revealTunnel(ctx: GameContext): void {
   };
   ctx.addCarryable(pickCarry);
 
-  // Walk up tunnel 2 (only safe once the trains are stopped) all the way to the
-  // back, and you come out at the slingshot yard — where the trains are launched.
-  walkThroughPortal(ctx, {
-    zone: (p) => p.z > WALL_T2 + 5 && Math.abs(p.x) < 2.4,
-    to: 'slingshot',
-    ref: new THREE.Vector3(0, 0, WALL_T2 + 6),
-    entry: 'tunnel',
-  });
-
-  // ── A planked-shut side tunnel on the −X wall. Bring the axe (from the forest)
-  //    and break the planks to open a path onward. ──
+  // ── A planked-shut side tunnel on the −X wall. Carry an axe in (the forest
+  //    has one) and break the planks — a third way out. ──
   const ptX = -42;
   const ptZ = 0;
   const sideMat = new THREE.MeshStandardMaterial({ color: 0x44474e, roughness: 1, flatShading: true });
@@ -365,16 +347,9 @@ export function revealTunnel(ctx: GameContext): void {
     thunder();
     ctx.setRegions([...baseRegions, { minX: ptX - 5, maxX: ptX + 1, minZ: ptZ - 2.5, maxZ: ptZ + 2.5, floorY: 0 }]);
     ctx.narrate('The planks split under the axe. The side tunnel gapes open — a way through.', 5500, { priority: true });
-    let gone = false;
-    addUpdater(() => {
-      if (gone) return true;
-      const p = ctx.playerPos();
-      if (p.x < ptX - 1.5 && Math.abs(p.z - ptZ) < 2.5) {
-        gone = true;
-        ctx.advance(new THREE.Vector3(ptX, 0, ptZ)); // step through → onward
-        return true;
-      }
-      return false;
+    walkThroughPortal(ctx, {
+      zone: (p) => p.x < ptX - 1.5 && Math.abs(p.z - ptZ) < 2.5,
+      ref: new THREE.Vector3(ptX, 0, ptZ), // step through → onward
     });
   };
 
