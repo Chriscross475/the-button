@@ -39,8 +39,9 @@ export interface InputOptions {
    *  walk-up fallback is suppressed). */
   onTap?: (clientX: number, clientY: number, canPress: boolean) => void;
   /** Fired when the player asks to interact without a screen coordinate
-   *  (E / Space). Means "use the currently in-range interactable". */
-  onInteract?: () => void;
+   *  (E / Space, or a pointer-locked click — `mouseButton` says which). Means
+   *  "use the currently in-range interactable". */
+  onInteract?: (mouseButton?: number) => void;
   /** Fired on the very first input of any kind — used to resume the audio
    *  context (needs a user gesture) and dismiss the first-run hint. */
   onFirstInput?: () => void;

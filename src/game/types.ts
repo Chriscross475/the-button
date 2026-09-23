@@ -141,8 +141,10 @@ export interface RegionCtx {
 export interface PhysicsCtx {
   /** Launch the player ballistically — the train. Velocity in m/s. */
   launchPlayer: (vel: THREE.Vector3) => void;
-  /** Kill the player: spectator death, then restart in the hub. */
-  die: (cause?: string) => void;
+  /** Kill the player: spectator death, then restart in the hub. With `wallHit`
+   *  (where, and the velocity you hit it at) the chalk outline goes ON that wall,
+   *  like a flight-wall splat — for walls a level tests itself (e.g. a round tent). */
+  die: (cause?: string, wallHit?: { pos: THREE.Vector3; dir: THREE.Vector3 }) => void;
   /** True while the player is mid-flight (post-launch). */
   isAirborne: () => boolean;
   /** True while dead (awaiting restart). */
@@ -182,6 +184,9 @@ export interface CompanionsCtx {
    *  follow + faces it at the player. `baseY` floats it at a height (e.g. a
    *  basket at chest level you can still toss into); default ground level. */
   setCompanion: (mesh: THREE.Object3D, baseY?: number) => void;
+  /** Whatever is following you now (or null). Remove it from the scene to let
+   *  it go — the Game drops a companion that has left the scene. */
+  getCompanion: () => THREE.Object3D | null;
   /** Mark a rim (a child of the current companion) as a SCORING hoop: thrown
    *  balls/ducks dropping through it score a point, shown on a label above the
    *  basket. Resets the score to 0. Pass null to stop scoring. */

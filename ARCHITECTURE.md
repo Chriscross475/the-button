@@ -35,7 +35,7 @@ returns a FRESH `Object3D` (own geometry/materials — safe to mutate).
 
 - `registry.ts` — `defineAsset(id, fn)`, `createAsset(id, params?)`, `hasAsset`, `assetIds()`.
 - `library.ts` — simple props (duck, axe, key, tree, campfire, statue, rock, …).
-- `infra.ts` — parameterized: `track` (rails along a spline), `tunnel-face` (arched rock wall).
+- `infra.ts` — parameterized: `track` (rails along a spline; a straight two-point track is a few draw calls however long).
 - `train.ts` — the train geometry **and** `trainStrike(ctx, pos, knockback)` (its behaviour).
 - `palette.ts` — `COLOR` (named hexes) + material helpers `flat/matte/metal/glow`. **Use these instead of new hex literals.**
 
@@ -131,7 +131,7 @@ Shared primitives so a new level is *assembly*, not geometry from scratch:
 - `walkThroughPortal(ctx, { zone, to?, ref, entry? })` — registers the one-shot
   updater that ends the room when the player enters `zone`: on to a random next
   room, or with `to`, a one-way hand-off to that one. **Use this for every
-  walk-through exit** (the tunnel's crack and side tunnel, the circus void) —
+  walk-through exit** (e.g. the booth's door, the circus curtain) —
   don't hand-roll the updater + bounds check.
 - `rewardPlinth(root, pos)` — the stone base/column/cap a prize sits on.
 - `crackedWall(root, pos, facingY)` — a dark recess + scattered rubble marking a
@@ -174,13 +174,13 @@ through getters so they never go stale. The 9 sections (`ctx.<namespace>` → me
 
 **The core rule: every room has a start and an end.** You press a button, you
 get a room, you find its way out, and the way out leads to a random next room.
-A room may have several ways out (the tunnel has three), and a small gag may
+A room may have several ways out (the booth has three endings), and a small gag may
 end where it started (the button comes back). What you carry in can open other
-options or endings inside a room — the axe opens the tunnel's side passage, a
+options or endings inside a room — the axe cuts the booth's mic cable, a
 roast duck doubles the duck room's payout — but **rooms never link back to each
 other.** No walking from A to B and back to A, and no room changing how another
-room behaves. A rare one-way hand-off into a specific room (the circus void
-drops you in the duck pens) is fine.
+room behaves. A rare one-way hand-off into a specific room (`walkThroughPortal`'s
+`to`) is fine, but nothing uses one at the moment.
 
 **An item doesn't have to open anything.** A narrator reaction is a valid
 payoff on its own: in the booth, a duck at the mic, money on the chair and a
@@ -192,7 +192,7 @@ a few cheap reactions — don't design every item into a mechanic.
   player's offset from `buttonPos`; **a bare `advance()` stands them clear** of
   the new button (don't pass the player's own position).
 - **Button exit**: `spawnPedestalButton(root, pos, () => ctx.advance(pos))`.
-- **Walk-through exit** (e.g. the tunnel's crack): `walkThroughPortal(ctx, {
+- **Walk-through exit** (e.g. the booth's door): `walkThroughPortal(ctx, {
   zone, ref })` (§3 kit) → a random next room. Add `to` (+ `entry`) for a one-way
   hand-off; the destination may read `ctx.entry` and call `ctx.spawnAt(ground,
   yaw)` to place the player.
@@ -205,7 +205,7 @@ a few cheap reactions — don't design every item into a mechanic.
 ## 6. Items, combos, interactables (`src/game/combine.ts`, `src/interactables/`)
 
 - **Carryable**: `ctx.addCarryable({ kind, object, heldDist?, onGrab?, onTap?, onThrow?(charge), onRelease?, persistent? })`. Dual hands; tap < 250ms vs hold-release = throw. Add a display name in `src/ui/hands.ts`.
-- **Combo**: `defineCombine(toolKind, targetKind, (held, target, env) => boolean)` (global; return `true` to keep the tool). Register the target per-level: `ctx.addTarget({ kind, position, radius })`. Existing combos: axe+wood/stone-block/plank/*-fence, pickaxe+stone-block, duck+campfire, key+door-lock, cooked-duck+stand.
+- **Combo**: `defineCombine(toolKind, targetKind, (held, target, env) => boolean)` (global; return `true` to keep the tool). Register the target per-level: `ctx.addTarget({ kind, position, radius })`. Existing combos: axe+*-fence, axe+booth-cable, duck+campfire, key+door-lock, cooked-duck+stand.
 - **Interactable** (PRESS prompt): `registerInteractable({ id, position, radius, promptLabel, onUse, tick?, canUse?, built? })`; set `.destroyed = true` to remove.
 
 ---

@@ -3,64 +3,82 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#15151a" />
+    <meta name="theme-color" content="#eeeeeb" />
     <title>The Button — Map</title>
     <style>
+      /* In the main menu's style: a bright, deadpan card — warm off-white, a
+         letter-spaced serif title, an italic line, small uppercase links. */
       * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #14141a; color: #e8e8ec;
+      html, body { width: 100%; height: 100%; overflow: hidden; color: #161616;
+        background: radial-gradient(ellipse at center, #f8f8f6 0%, #e8e8e5 75%);
         font-family: Georgia, 'Times New Roman', serif; }
       #map { position: fixed; inset: 0; touch-action: none; cursor: grab; }
       #map.dragging { cursor: grabbing; }
       svg { width: 100%; height: 100%; display: block; }
+      @keyframes titleIn { from { letter-spacing: 0.6em; opacity: 0; } to { letter-spacing: 0.16em; opacity: 1; } }
 
-      /* Top bar */
-      #bar { position: fixed; top: 0; left: 0; right: 0; height: 52px; display: flex; align-items: center;
-        gap: 16px; padding: 0 16px; background: linear-gradient(#1c1c24cc, #1c1c2400);
+      /* Title card, top centre */
+      #head { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); text-align: center;
         z-index: 5; pointer-events: none; }
-      #bar > * { pointer-events: auto; }
-      #title { font-size: 19px; letter-spacing: 0.04em; }
-      #count { font-size: 13px; color: #9a9aa6; letter-spacing: 0.1em; text-transform: uppercase; }
-      .btn { font: inherit; font-size: 13px; letter-spacing: 0.06em; color: #d8d8e0; background: #2a2a34;
-        border: 1px solid #3a3a46; border-radius: 7px; padding: 7px 12px; cursor: pointer; }
-      .btn:hover { background: #34343f; }
-      .btn.on { background: #4a6fa5; border-color: #5a82bd; color: #fff; }
-      #back { margin-left: auto; text-decoration: none; }
+      #title { font-size: clamp(28px, 5vw, 44px); letter-spacing: 0.16em; font-weight: 500; color: #161616;
+        text-shadow: 0 2px 18px rgba(255,255,255,0.8); animation: titleIn 1.4s cubic-bezier(0.2,0.7,0.2,1) forwards; }
+      #count { font-style: italic; font-size: clamp(13px, 2vw, 16px); color: rgba(30,30,30,0.62); margin-top: 2px; }
 
-      /* Legend */
-      #legend { position: fixed; left: 14px; bottom: 14px; z-index: 5; background: #1b1b22dd;
-        border: 1px solid #2e2e38; border-radius: 9px; padding: 10px 12px; font-size: 12px; line-height: 1.9; }
-      #legend .row { display: flex; align-items: center; gap: 8px; }
-      #legend .dot { width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; }
+      /* Links, top right */
+      #links { position: fixed; top: 10px; right: 10px; display: flex; gap: 2px; z-index: 6;
+        font-family: system-ui, -apple-system, sans-serif; }
+      .link { background: transparent; border: none; color: rgba(30,30,30,0.55); font: inherit; font-size: 11px;
+        font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; min-height: 44px; padding: 6px 10px;
+        cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+      .link:hover, .link.on { color: rgba(20,20,20,0.95); }
+      .link.on { text-decoration: underline; text-underline-offset: 5px; }
+
+      /* Legend, bottom left: plain small print */
+      #legend { position: fixed; left: 16px; bottom: 14px; z-index: 5; font-family: system-ui, -apple-system, sans-serif;
+        font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(30,30,30,0.6); line-height: 2; }
+      #legend .row { display: flex; align-items: center; gap: 9px; }
+      #legend .dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
       #legend .ln { width: 16px; height: 0; border-top: 2px solid; flex: 0 0 auto; }
+      #legend .sep { margin-top: 6px; color: rgba(30,30,30,0.4); }
 
-      /* Details panel */
-      #panel { position: fixed; right: 14px; top: 64px; width: 300px; max-width: calc(100vw - 28px);
-        z-index: 5; background: #1b1b22ee; border: 1px solid #2e2e38; border-radius: 11px;
-        padding: 16px 18px; display: none; }
+      /* Details card */
+      #panel { position: fixed; right: 16px; top: 64px; width: 300px; max-width: calc(100vw - 32px);
+        z-index: 5; background: rgba(255,255,255,0.82); border: 1px solid rgba(20,20,20,0.12); border-radius: 14px;
+        box-shadow: 0 6px 28px rgba(0,0,0,0.1); backdrop-filter: blur(3px); padding: 18px 20px; display: none; }
       #panel.show { display: block; }
-      #panel .kind { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: #9a9aa6; }
-      #panel h2 { font-size: 21px; margin: 4px 0 8px; }
-      #panel .note { font-size: 14px; line-height: 1.5; color: #cdcdd6; font-style: italic; }
-      #panel .links { margin-top: 12px; font-size: 13px; color: #b6b6c2; line-height: 1.7; }
-      #panel .links b { color: #e8e8ec; font-style: normal; }
-      #panel .mystery { color: #8a8a96; font-style: italic; }
-      #hint { position: fixed; right: 14px; bottom: 14px; z-index: 4; font-size: 12px; color: #76767f;
-        text-align: right; line-height: 1.6; }
-      @media (max-width: 620px) { #panel { width: calc(100vw - 28px); } #legend { font-size: 11px; } }
+      #panel .kind { font-family: system-ui, -apple-system, sans-serif; font-size: 10.5px; font-weight: 600;
+        letter-spacing: 0.2em; text-transform: uppercase; }
+      #panel h2 { font-size: 23px; font-weight: 500; letter-spacing: 0.03em; margin: 5px 0 8px; }
+      #panel .note { font-size: 14.5px; line-height: 1.55; color: rgba(30,30,30,0.78); font-style: italic; }
+      #panel .links { margin-top: 13px; padding-top: 11px; border-top: 1px solid rgba(20,20,20,0.1);
+        font-size: 13px; color: rgba(30,30,30,0.7); line-height: 1.75; }
+      #panel .links b { color: #161616; font-weight: 600; }
+      #panel .links .how { color: rgba(30,30,30,0.45); font-style: italic; }
+      #panel .mystery { color: rgba(30,30,30,0.5); }
+      #hint { position: fixed; right: 16px; bottom: 14px; z-index: 4; font-family: system-ui, -apple-system, sans-serif;
+        font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(30,30,30,0.45);
+        text-align: right; line-height: 1.9; }
+      @media (max-width: 620px) {
+        #panel { width: calc(100vw - 32px); top: auto; bottom: 16px; }
+        #legend, #hint { display: none; }
+        #head { top: 54px; }
+      }
     </style>
   </head>
   <body>
     <div id="map"><svg id="svg"></svg></div>
-    <div id="bar">
-      <span id="title">The Map</span>
-      <span id="count"></span>
-      <button class="btn" id="reveal">Reveal all</button>
-      <button class="btn" id="reset">Reset</button>
-      <a class="btn" id="back" href="./">↩ Back to the button</a>
+    <div id="head">
+      <div id="title">THE MAP</div>
+      <div id="count"></div>
+    </div>
+    <div id="links">
+      <button class="link" id="reveal">Reveal all</button>
+      <button class="link" id="reset">Reset</button>
+      <a class="link" id="back" href="./">Back to the button</a>
     </div>
     <div id="legend"></div>
     <div id="panel"></div>
-    <div id="hint">drag to pan · scroll to zoom · drag a node to move it<br />tap a node for details</div>
+    <div id="hint">drag to pan · scroll to zoom · drag a node<br />tap a node for details</div>
     <script type="module" src="/src/graph/page.ts"></script>
   </body>
 </html>

@@ -8,15 +8,16 @@ import { registerInteractable } from '../interactables/system';
 import type { Interactable } from '../interactables/types';
 import { whoosh, pop, thud } from '../audio/sfx';
 import { buildExitRoom } from './exit-room';
-import { createAsset } from '../assets';
-import { defineCombine, type Carryable } from '../game/combine';
+import { defineCombine } from '../game/combine';
 import { disposeTree } from '../engine/dispose';
 import { vo } from '../audio/vo-shared';
+import { spawnKey, buildLock, keyKind } from '../objects/key';
 
-// The last door is locked: combining the key (found behind you in the first
-// room) with its lock opens it. The active doors level installs the unlock.
+// The last door is locked (a BLUE lock): combining the blue key (found behind
+// you in the first room) with it opens it. The active doors level installs the unlock.
 let unlockLastDoor: (() => void) | null = null;
-defineCombine('key', 'door-lock', (held) => {
+defineCombine(keyKind('blue'), 'door-lock', (held, _t, env) => {
+  env.carry.removeCarryable(held);
   held.object.parent?.remove(held.object); // the key is spent
   pop();
   unlockLastDoor?.();
@@ -206,9 +207,9 @@ export function revealDoors(ctx: GameContext): void {
       const plate = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.5, 0.08), lockMat);
       plate.position.set(doorW(k) * 0.34, 1.25, z + 0.12);
       root.add(plate);
-      const keyhole = new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), new THREE.MeshBasicMaterial({ color: 0x0a0a0a }));
-      keyhole.position.set(doorW(k) * 0.34, 1.3, z + 0.17);
-      root.add(keyhole);
+      const lock = buildLock('blue'); // a blue lock: only the blue key fits
+      lock.position.set(doorW(k) * 0.34, 1.28, z + 0.18);
+      root.add(lock);
       const it: Interactable = {
         id: 'door-knob-last',
         position: new THREE.Vector3(0, 1.3, z),
@@ -346,14 +347,7 @@ export function revealDoors(ctx: GameContext): void {
 
   // The KEY for the last door — in the FIRST room, BEHIND the player, so it's
   // not seen at the start (you face the corridor; it's at your back).
-  const key = createAsset('key');
-  key.position.set(1.8, 0.45, ROOM_D / 2 - 1.0);
-  root.add(key);
-  ctx.addCarryable({
-    kind: 'key',
-    object: key,
-    heldDist: 0.6,
-    heldDrop: 0.28,
+  spawnKey(ctx, 'blue', new THREE.Vector3(1.8, 0.45, ROOM_D / 2 - 1.0), {
     onGrab: () => {
       if (!shuffled || keyShuffled) return;
       keyShuffled = true;

@@ -3,6 +3,7 @@ import type { GameContext } from './types';
 import { createAsset } from '../assets';
 import { setHandItem } from '../ui/hands';
 import { discoverItem, discoverTarget } from '../graph/progress';
+import { getInRangeInteractable } from '../interactables/system';
 
 // CARRY + COMBINE — the shared interaction framework, now DUAL-HANDED.
 //
@@ -15,6 +16,8 @@ import { discoverItem, discoverTarget } from '../graph/progress';
 // Recipes are global rules: defineCombine('duck','campfire', fn).
 
 const TAP_MS = 250;
+const POKE_OUT = 0.09; // empty-hand press: seconds to full reach…
+const POKE_BACK = 0.2; // …and back
 const AIM_DIST = 1.6; // how far ahead the "click on" probe point sits
 const GRAB_DIST = 3.2; // max reach to grab something you're looking at
 
@@ -25,6 +28,10 @@ export interface Carryable {
   onTap?: () => void;
   /** Hold-and-release while held with no combine (e.g. throw). charge 0..1. */
   onThrow?: (charge: number) => void;
+  /** A mouse click throws it too (weakest throw); holding charges a further one,
+   *  shown by the charge bar under the crosshair. Touch keeps hold-to-throw, since
+   *  a tap there is also how you press a button. */
+  clickThrows?: boolean;
   onGrab?: () => void;
   onRelease?: () => void;
   /** Per-frame while held: set orientation/animation. Position is handled by
@@ -100,6 +107,12 @@ export interface Carry {
   /** Drop everything registered for the level being left, keeping the hands/arms
    *  and any PERSISTENT held items (which carry to the next level). */
   clearLevel(): void;
+  /** True if that hand's last mouse press began aimed at a target its item
+   *  combines with — the click is the item's, not a button's. */
+  clickIsCombo(side: 'left' | 'right'): boolean;
+  /** Play the empty-hand press (the hand jabs forward and back), if that hand
+   *  is empty. */
+  poke(side: 'left' | 'right'): void;
   /** Put an item directly into a hand (e.g. a recipe result). */
   putInHand(side: 'left' | 'right', c: Carryable): void;
   /** After a new level is built, re-install per-level hooks for items the player
@@ -129,6 +142,9 @@ type Side = 'left' | 'right';
 interface Hand {
   item: Carryable | null;
   pressing: boolean;
+  comboClick: boolean; // this press began aimed at a combine target
+  mouse: boolean; // this press came from a mouse
+  poke: number; // seconds into the empty-hand press animation (−1 = idle)
   pressStart: number;
   arm: THREE.Object3D;
 }
@@ -180,8 +196,8 @@ export function createCarry(
     return a;
   };
   const hands: Record<Side, Hand> = {
-    left: { item: null, pressing: false, pressStart: 0, arm: makeArm('left') },
-    right: { item: null, pressing: false, pressStart: 0, arm: makeArm('right') },
+    left: { item: null, pressing: false, comboClick: false, mouse: false, poke: -1, pressStart: 0, arm: makeArm('left') },
+    right: { item: null, pressing: false, comboClick: false, mouse: false, poke: -1, pressStart: 0, arm: makeArm('right') },
   };
 
   const label = (side: Side) => setHandItem(side, hands[side].item?.kind ?? null);
@@ -192,9 +208,18 @@ export function createCarry(
     ctx.camera.getWorldDirection(forward);
     rightV.crossVectors(forward, up).normalize();
     const cam = ctx.camera.position;
-    const ro = (h.item?.heldRight ?? 0.42) * (side === 'left' ? -1 : 1);
-    const d = h.item?.heldDist ?? 0.85;
-    const drop = h.item?.heldDrop ?? 0.45;
+    // Empty-hand press: a quick jab forward, in toward the crosshair and up a
+    // touch, then an easier return (out over POKE_OUT, back over POKE_BACK).
+    let jab = 0;
+    if (h.poke >= 0) {
+      h.poke += dt;
+      jab = h.poke < POKE_OUT ? h.poke / POKE_OUT : 1 - (h.poke - POKE_OUT) / POKE_BACK;
+      if (h.poke >= POKE_OUT + POKE_BACK || h.item) (h.poke = -1), (jab = 0);
+      jab = jab * jab * (3 - 2 * jab); // smoothstep
+    }
+    const ro = ((h.item?.heldRight ?? 0.42) - 0.2 * jab) * (side === 'left' ? -1 : 1);
+    const d = (h.item?.heldDist ?? 0.85) + 0.3 * jab;
+    const drop = (h.item?.heldDrop ?? 0.45) - 0.12 * jab;
     const hx = cam.x + forward.x * d + rightV.x * ro;
     const hz = cam.z + forward.z * d + rightV.z * ro;
     const yaw = Math.atan2(forward.x, forward.z) + Math.PI;
@@ -280,6 +305,10 @@ export function createCarry(
       }
     },
     addTarget: (t) => targets.push(t),
+    clickIsCombo: (side) => hands[side].comboClick,
+    poke: (side) => {
+      if (!hands[side].item) hands[side].poke = 0;
+    },
     removeTarget: (t) => {
       const i = targets.indexOf(t);
       if (i >= 0) targets.splice(i, 1);
@@ -304,6 +333,7 @@ export function createCarry(
       // in levels that register carryables.
       hands.left.arm.visible = active;
       hands.right.arm.visible = active;
+      showCharge(active);
       if (!active) return;
       pinHand('left', dt);
       pinHand('right', dt);
@@ -464,15 +494,44 @@ export function createCarry(
     label(side);
   };
 
-  const sideOf = (e: PointerEvent): Side => {
+  // A press on either hand: the bits of a mouse or touch event the hands read.
+  interface Press {
+    pointerType: string;
+    button: number;
+    clientX: number;
+    clientY: number;
+  }
+  const sideOf = (e: Press): Side => {
     if (e.pointerType === 'touch') return e.clientX < window.innerWidth / 2 ? 'left' : 'right';
     return e.button === 2 ? 'right' : 'left';
   };
 
-  function onDown(e: PointerEvent) {
-    if (!playing || ctx.isDead()) return;
+  const chargeOf = (elapsed: number) => Math.min(1, elapsed / 1000);
+  // The charge bar under the crosshair: shown while a click-throw item is held
+  // down past a tap (a plain click just throws, so it never flashes).
+  const chargeBar = typeof document !== 'undefined' ? document.getElementById('charge-bar') : null;
+  const chargeFill = chargeBar?.firstElementChild as HTMLElement | null | undefined;
+  const showCharge = (active: boolean) => {
+    if (!chargeBar || !chargeFill) return;
+    let charge = -1;
+    if (active) {
+      for (const side of ['left', 'right'] as Side[]) {
+        const h = hands[side];
+        if (!h.pressing || !h.mouse || h.comboClick || !h.item?.clickThrows) continue;
+        const elapsed = performance.now() - h.pressStart;
+        if (elapsed >= TAP_MS) charge = Math.max(charge, chargeOf(elapsed));
+      }
+    }
+    chargeBar.style.display = charge < 0 ? 'none' : 'block';
+    if (charge >= 0) chargeFill.style.width = `${charge * 100}%`;
+  };
+
+  function onDown(e: Press) {
     const side = sideOf(e);
     const h = hands[side];
+    h.comboClick = false;
+    if (!playing || ctx.isDead()) return;
+    h.comboClick = !!h.item && !!findCombo(h.item);
     if (!h.item) {
       // Touch: grab from the tapped point (tap the duck itself). Mouse: crosshair.
       const ndc =
@@ -480,13 +539,21 @@ export function createCarry(
           ? grabNdc.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1))
           : null;
       tryGrab(side, ndc);
+      if (!h.item) h.poke = 0; // nothing grabbed: the hand presses instead
+      h.pressing = false;
+      return;
+    }
+    // A mouse click on a button presses the button; the held item stays put
+    // unless it is aimed at something it combines with (then it's the item's).
+    if (e.pointerType === 'mouse' && getInRangeInteractable() && !h.comboClick) {
       h.pressing = false;
       return;
     }
     h.pressing = true;
+    h.mouse = e.pointerType === 'mouse';
     h.pressStart = performance.now();
   }
-  function onUp(e: PointerEvent) {
+  function onUp(e: Press) {
     if (!playing) return;
     const side = sideOf(e);
     const h = hands[side];
@@ -505,11 +572,12 @@ export function createCarry(
     // press a button (mobile, where the same touch reaches the carry system) would
     // fling a held reward — your money — out of your hand. Throwing needs a real
     // hold-and-release (elapsed >= TAP_MS).
-    if (elapsed < TAP_MS) {
+    const clickThrow = !!item.clickThrows && h.mouse;
+    if (elapsed < TAP_MS && !clickThrow) {
       if (item.onTap) item.onTap(); // e.g. an axe swing; otherwise the item just stays put
       return;
     }
-    const charge = Math.min(1, elapsed / 1000);
+    const charge = chargeOf(elapsed);
     if (item.onThrow) {
       item.onThrow(charge);
       releaseHand(side);
@@ -529,8 +597,30 @@ export function createCarry(
 
   if (canvas) {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    canvas.addEventListener('pointerdown', onDown);
-    canvas.addEventListener('pointerup', onUp);
+    // Mouse: mousedown/mouseup fire once PER BUTTON, so both hands work at the
+    // same time. (Pointer events fire only for the first button down and the
+    // last one up — a second button arrives as a pointermove "chord" — so the
+    // other hand never heard it.) Touch keeps pointer events; the compatibility
+    // mouse events a touch synthesises right after are ignored.
+    let lastTouch = -Infinity;
+    const asMouse = (e: MouseEvent): Press => ({ pointerType: 'mouse', button: e.button, clientX: e.clientX, clientY: e.clientY });
+    const fromTouch = () => performance.now() - lastTouch < 700;
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      lastTouch = performance.now();
+      onDown(e);
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'mouse') return;
+      lastTouch = performance.now();
+      onUp(e);
+    });
+    canvas.addEventListener('mousedown', (e) => {
+      if (!fromTouch()) onDown(asMouse(e));
+    });
+    canvas.addEventListener('mouseup', (e) => {
+      if (!fromTouch()) onUp(asMouse(e));
+    });
   }
 
   return carry;

@@ -54,6 +54,14 @@ export function setPitch(p: number): void {
   pitch = p;
 }
 
+// Eye height while walking: null = standing (CONFIG.PLAYER_HEIGHT). A level can
+// lower it (sitting on a chair) — the walker, and so the hands, follow it. The
+// Game resets it on every level load.
+let eyeHeight: number | null = null;
+export function setEyeHeight(h: number | null): void {
+  eyeHeight = h;
+}
+
 // The unicycle: hands-free movement that's faster but carries momentum (slides).
 let wheel = false;
 let wvx = 0;
@@ -137,7 +145,7 @@ export function updatePlayer(
     camera.position.x = cx;
     camera.position.z = cz;
     const fyw = floorYAt(camera.position.x, camera.position.z, camera.position.y, regions);
-    camera.position.y = (fyw ?? 0) + CONFIG.PLAYER_HEIGHT;
+    camera.position.y = (fyw ?? 0) + (eyeHeight ?? CONFIG.PLAYER_HEIGHT);
     return;
   }
   if (input.moveX !== 0 || input.moveY !== 0) {
@@ -169,7 +177,7 @@ export function updatePlayer(
   }
 
   const fy = floorYAt(camera.position.x, camera.position.z, camera.position.y, regions);
-  camera.position.y = (fy ?? 0) + CONFIG.PLAYER_HEIGHT;
+  camera.position.y = (fy ?? 0) + (eyeHeight ?? CONFIG.PLAYER_HEIGHT);
 }
 
 /** The floor the player would stand/land on at (x,z): the HIGHEST region floor

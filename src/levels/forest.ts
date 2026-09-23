@@ -6,6 +6,7 @@ import { pop, thud } from '../audio/sfx';
 import { createAsset } from '../assets';
 import { spawnDuck } from '../objects/duck';
 import { spawnAxe } from '../objects/axe';
+import { buildGrandmaCottage } from './grandma-cottage';
 
 // A LEVEL — the forest. The walls topple and you're on a wide outdoor plain
 // dotted with trees, under a bright sky. Resolution: find the clearing with the
@@ -16,6 +17,7 @@ import { spawnAxe } from '../objects/axe';
 
 const HALF = 38;
 const EXIT = new THREE.Vector3(-24, 0, -30); // cabin: far + off to the side, so you look around
+const COTTAGE = new THREE.Vector3(25, 0, -24); // grandma's cottage (red lock), across from the cabin
 
 const CHOP_REACH = 2.6; // how near a swing must land to a tree to fell it
 
@@ -150,6 +152,7 @@ export function revealForest(ctx: GameContext): void {
     if (Math.hypot(x, z) < 6) continue; // spawn clearing
     if (Math.hypot(x - EXIT.x, z - EXIT.z) < 5) continue; // exit clearing
     if (Math.hypot(x - stumpPos.x, z - stumpPos.z) < 2.5) continue; // axe clearing
+    if (Math.hypot(x - COTTAGE.x, z - COTTAGE.z) < 7) continue; // grandma's garden
     mkTree(x, z);
   }
 
@@ -184,6 +187,7 @@ export function revealForest(ctx: GameContext): void {
     if (Math.hypot(x, z) < 4) continue;
     if (Math.hypot(x - EXIT.x, z - EXIT.z) < 5) continue;
     if (Math.hypot(x - stumpPos.x, z - stumpPos.z) < 2) continue;
+    if (Math.hypot(x - COTTAGE.x, z - COTTAGE.z) < 6) continue;
     const rock = createAsset('rock');
     const s = 0.3 + Math.random() * 1.1;
     rock.scale.setScalar(s);
@@ -256,6 +260,7 @@ export function revealForest(ctx: GameContext): void {
 
   // A white room waiting in the clearing — walk in and press to go on.
   buildExitRoom(ctx, { center: EXIT, facing: 'posZ', solidWalls: true }); // walls block — only the door lets you in
+  buildGrandmaCottage(ctx, COTTAGE); // the red lock; grandma; and, if the wolf is with you, a story
 
   // ── A planked double door bars the cabin entrance. By hand it won't budge —
   //    you have to smash the plank with the axe. ──

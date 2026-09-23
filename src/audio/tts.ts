@@ -206,6 +206,13 @@ export function speak(text: string): void {
   liveSpeak(text, mySeq);
 }
 
+/** True while a line is still audibly playing (a baked/live clip, or Web
+ *  Speech). The narrator waits on this so a queued line never cuts one off. */
+export function isSpeaking(): boolean {
+  if (currentAudio && !currentAudio.paused && !currentAudio.ended) return true;
+  return supported && window.speechSynthesis.speaking;
+}
+
 export function cancelSpeech(): void {
   seq++; // invalidate any in-flight fetch
   stopAudio();

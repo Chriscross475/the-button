@@ -101,8 +101,8 @@ export function defineReveal(
  *  to a random next room, like pressing an exit button. `ref` is the world point
  *  the player's offset is kept from.
  *
- *  `to` names a fixed destination instead — a ONE-WAY hand-off (the circus void
- *  drops you in the duck pens). Rooms never link back to each other: every room
+ *  `to` names a fixed destination instead — a ONE-WAY hand-off into a specific
+ *  room (none uses it at the moment). Rooms never link back to each other: every room
  *  has its start and its end(s), and nothing walks you back into the last one.
  *  `entry` names the opening; the destination may read ctx.entry to place you. */
 export function walkThroughPortal(

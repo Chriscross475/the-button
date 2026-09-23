@@ -3,9 +3,8 @@ import { defineAsset } from './registry';
 
 // THE TRAIN — geometry + its shared behaviour. A train flattens the player on
 // contact, or, if they're clutching a duck, knocks them clear instead (the duck
-// is consumed). That rule is the same everywhere a train runs — the tunnel level
-// and the slingshot crossroads — so it lives HERE with the train, not copied
-// into each level.
+// is consumed). That rule is the same everywhere a train runs, so it lives HERE
+// with the train, not copied into each level.
 
 // A chunky low-poly locomotive, nose at +Z (callers rotate it for direction).
 // Reusable on any map via createAsset('train'); behaviour is trainStrike below.

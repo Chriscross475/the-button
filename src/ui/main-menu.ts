@@ -1,4 +1,5 @@
 import { toggleTts, isTtsEnabled } from '../audio/tts';
+import { click } from '../audio/sfx';
 
 // The main menu. A clean, bright, deadpan title card — the inverse of the dark
 // dungeon the engine came from. Full-screen vanilla-DOM overlay (same shape as
@@ -27,13 +28,24 @@ export interface MainMenuOptions {
 const TEST_LEVELS: [string, string][] = [
   ['ducks', 'DUCKS'],
   ['forest', 'FOREST'],
-  ['tunnel', 'TUNNEL'],
   ['doors', 'DOORS'],
   ['another-button', 'BUTTONS'],
-  ['slingshot', 'SLINGSHOT'],
   ['basketball', 'HOOPS'],
   ['circus', 'CIRCUS'],
   ['booth', 'BOOTH'],
+  ['desert', 'DESERT'],
+  ['elevator', 'LIFT'],
+  ['museum', 'MUSEUM'],
+  ['waiting-room', 'WAITING'],
+  ['tutorial', 'TUTORIAL'],
+  ['loading-screen', 'LOADING'],
+  ['evil-twin', 'TWINS'],
+  ['customer-support', 'SUPPORT'],
+  ['terms', 'TERMS'],
+  ['captcha', 'CAPTCHA'],
+  ['queue', 'QUEUE'],
+  ['gift-shop', 'SHOP'],
+  ['lost-found', 'LOST+FOUND'],
 ];
 
 export function showMainMenu(opts: MainMenuOptions): void {
@@ -93,14 +105,22 @@ export function showMainMenu(opts: MainMenuOptions): void {
   });
   root.appendChild(sub);
 
-  // Primary action: BEGIN (boot) or RESUME (pause).
-  const begin = makePill(paused ? 'RESUME' : 'BEGIN');
-  begin.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    hide(root);
-    (paused ? opts.onResume : opts.onBegin)?.();
-  });
-  root.appendChild(begin);
+  // Primary action. Boot: THE button itself, wordless — you press it to begin.
+  // Pause: a plain RESUME pill.
+  if (paused) {
+    const resume = makePill('RESUME');
+    resume.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      hide(root);
+      opts.onResume?.();
+    });
+    root.appendChild(resume);
+  } else {
+    root.appendChild(makeBigRedButton(() => {
+      hide(root);
+      opts.onBegin?.();
+    }));
+  }
 
   // Secondary links: how-to-play toggle + narrator mute.
   const links = document.createElement('div');
@@ -211,6 +231,68 @@ export function showMainMenu(opts: MainMenuOptions): void {
   requestAnimationFrame(() => {
     root.style.opacity = '1';
   });
+}
+
+// The big red button, seen from above: a dark metal housing ring, and centred
+// in it a round glossy red dome with a highlight and a darker red bevel ring.
+// Pressing sinks the dome into the housing (it stays down as the menu fades),
+// clicks, and fires `onPress`. No label; screen readers get "Begin".
+function makeBigRedButton(onPress: () => void): HTMLButtonElement {
+  if (!document.getElementById('big-red-button-style')) {
+    const style = document.createElement('style');
+    style.id = 'big-red-button-style';
+    style.textContent = `
+      .brb { position: relative; width: 168px; height: 168px; border-radius: 50%; border: none; padding: 0;
+        margin: 6px 0 4px; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+        background: radial-gradient(circle at 50% 38%, #6a6d74 0%, #3a3c42 55%, #1c1d21 100%);
+        box-shadow: 0 14px 30px rgba(0,0,0,0.35), inset 0 2px 3px rgba(255,255,255,0.35), inset 0 -6px 10px rgba(0,0,0,0.5); }
+      .brb:focus-visible { outline: 3px solid rgba(40,40,40,0.5); outline-offset: 6px; }
+      .brb .well { position: absolute; inset: 16px; border-radius: 50%;
+        background: radial-gradient(circle at 50% 60%, #0b0b0d 0%, #1e1f23 70%, #2c2d32 100%);
+        box-shadow: inset 0 6px 12px rgba(0,0,0,0.8); }
+      .brb .cap { position: absolute; inset: 30px; border-radius: 50%;
+        background: radial-gradient(circle at 38% 32%, #ff9a8c 0%, #ff3a2c 22%, #d31414 55%, #8e0707 100%);
+        box-shadow: 0 0 0 7px #8a0808, 0 0 0 9px rgba(0,0,0,0.55), 0 5px 10px 9px rgba(0,0,0,0.35), inset 0 -6px 12px rgba(90,0,0,0.5);
+        transition: transform 0.07s ease, box-shadow 0.07s ease, filter 0.2s ease; }
+      .brb .shine { position: absolute; left: 22%; top: 12%; width: 38%; height: 26%; border-radius: 50%;
+        background: radial-gradient(ellipse at center, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0) 70%);
+        transform: rotate(-18deg); }
+      .brb:hover .cap { filter: brightness(1.08) saturate(1.05); }
+      .brb.down .cap { transform: scale(0.93); filter: brightness(0.85);
+        box-shadow: 0 0 0 9px #7a0606, 0 0 0 11px rgba(0,0,0,0.6), 0 2px 4px 11px rgba(0,0,0,0.3), inset 0 4px 12px rgba(60,0,0,0.6); }
+    `;
+    document.head.appendChild(style);
+  }
+  const b = document.createElement('button');
+  b.className = 'brb';
+  b.setAttribute('aria-label', 'Begin');
+  const well = document.createElement('div');
+  well.className = 'well';
+  const cap = document.createElement('div');
+  cap.className = 'cap';
+  const shine = document.createElement('div');
+  shine.className = 'shine';
+  cap.appendChild(shine);
+  b.append(well, cap);
+  let pressed = false;
+  const press = () => {
+    if (pressed) return;
+    pressed = true;
+    b.classList.add('down'); // stays down while the menu fades out
+    click();
+    onPress(); // right away: starting grabs the mouse + audio, which need the live gesture
+  };
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    press();
+  });
+  b.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      press();
+    }
+  });
+  return b;
 }
 
 function makePill(label: string): HTMLButtonElement {

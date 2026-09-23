@@ -6,8 +6,7 @@ import type { Interactable } from './types';
 // Holds the live list; each frame the main loop calls tickInteractables() with
 // the player position + forward direction. It computes which interactable (if
 // any) is in range AND in the player's forward cone, and exposes it for the
-// prompt overlay + press handler. Facing matters: you shouldn't get a PRESS
-// prompt for a button behind you.
+// press handler. Facing matters: you shouldn't press a button behind you.
 
 const interactables: Interactable[] = [];
 let currentInRange: Interactable | null = null;

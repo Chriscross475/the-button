@@ -10,20 +10,23 @@ const NS = 'http://www.w3.org/2000/svg';
 const el = <K extends keyof SVGElementTagNameMap>(t: K) => document.createElementNS(NS, t);
 const byId = (id: string) => document.getElementById(id)!;
 
+// Tuned for the main menu's light, off-white card: deeper, calmer colours.
 const KIND_COLOR: Record<NodeKind, string> = {
-  level: '#5b8fd6', gag: '#9b8bc4', item: '#e0a73e', mechanic: '#3fb0a3', reward: '#f0c948', fx: '#e08a8a',
+  level: '#3f6fb5', gag: '#7d6aa8', item: '#c98a1e', mechanic: '#23897d', reward: '#d4a216', fx: '#c96a6a',
 };
 const EDGE_STYLE: Record<EdgeKind, { color: string; width: number; dash: string }> = {
-  portal: { color: '#6b9bd6', width: 2.6, dash: '7 4' },
-  spawns: { color: '#c79a4a', width: 1.6, dash: '' },
-  combine: { color: '#e0863e', width: 1.9, dash: '' },
-  makes: { color: '#5cba7d', width: 1.6, dash: '' },
-  reward: { color: '#f0c948', width: 2.1, dash: '' },
-  enables: { color: '#7a7a88', width: 1.4, dash: '2 3' },
-  controls: { color: '#3fb0a3', width: 1.7, dash: '5 3' },
-  shields: { color: '#e08a8a', width: 1.5, dash: '1 4' },
+  portal: { color: '#3f6fb5', width: 2.4, dash: '7 4' },
+  spawns: { color: '#a57a2c', width: 1.5, dash: '' },
+  combine: { color: '#c8641c', width: 1.8, dash: '' },
+  makes: { color: '#3c9a5d', width: 1.5, dash: '' },
+  reward: { color: '#c9960f', width: 2.0, dash: '' },
+  enables: { color: '#8a8a86', width: 1.3, dash: '2 3' },
+  controls: { color: '#23897d', width: 1.6, dash: '5 3' },
+  shields: { color: '#c96a6a', width: 1.4, dash: '1 4' },
 };
-const FOG_EDGE = { color: '#33333c', width: 1, dash: '2 5' };
+const FOG_EDGE = { color: '#c9c9c4', width: 1, dash: '2 5' };
+const INK = '#1a1a1a';
+const PAPER = '#f4f4f2'; // label halos, so text reads over lines
 
 interface SimNode extends GNode { x: number; y: number; vx: number; vy: number; fx?: number; fy?: number; r: number; }
 
@@ -104,6 +107,13 @@ for (const k of Object.keys(EDGE_STYLE) as EdgeKind[]) {
   const p = el('path'); p.setAttribute('d', 'M0 0 L10 5 L0 10 z'); p.setAttribute('fill', EDGE_STYLE[k].color);
   m.appendChild(p); defs.appendChild(m);
 }
+// The White Room is drawn as THE button: a red dome with a highlight.
+const hubGrad = el('radialGradient');
+hubGrad.setAttribute('id', 'hub-dome'); hubGrad.setAttribute('cx', '0.4'); hubGrad.setAttribute('cy', '0.34'); hubGrad.setAttribute('r', '0.7');
+for (const [off, col] of [['0', '#ff9a8c'], ['0.22', '#ff3a2c'], ['0.55', '#d31414'], ['1', '#8e0707']]) {
+  const st = el('stop'); st.setAttribute('offset', off); st.setAttribute('stop-color', col); hubGrad.appendChild(st);
+}
+defs.appendChild(hubGrad);
 svg.appendChild(defs);
 const viewport = el('g'); svg.appendChild(viewport);
 const edgeLayer = el('g'); viewport.appendChild(edgeLayer);
@@ -115,7 +125,9 @@ interface EdgeEls { line: SVGLineElement; cap: SVGTextElement; e: GEdge; }
 const edgeEls: EdgeEls[] = edges.map((e) => {
   const line = el('line'); edgeLayer.appendChild(line);
   const cap = el('text'); cap.setAttribute('text-anchor', 'middle'); cap.setAttribute('font-size', '10');
-  cap.setAttribute('font-style', 'italic'); labelLayer.appendChild(cap);
+  cap.setAttribute('font-style', 'italic');
+  cap.setAttribute('stroke', PAPER); cap.setAttribute('stroke-width', '3'); cap.setAttribute('paint-order', 'stroke');
+  labelLayer.appendChild(cap);
   return { line, cap, e };
 });
 interface NodeEls { g: SVGGElement; circle: SVGCircleElement; q: SVGTextElement; label: SVGTextElement; n: SimNode; }
@@ -125,7 +137,8 @@ const nodeEls: NodeEls[] = nodes.map((n) => {
   const q = el('text'); q.setAttribute('text-anchor', 'middle'); q.setAttribute('dominant-baseline', 'central');
   q.setAttribute('font-size', '15'); q.setAttribute('font-weight', 'bold'); q.textContent = '?'; g.appendChild(q);
   const label = el('text'); label.setAttribute('text-anchor', 'middle'); label.setAttribute('font-size', '12');
-  label.setAttribute('fill', '#d2d2da'); g.appendChild(label);
+  label.setAttribute('fill', INK); label.setAttribute('stroke', PAPER); label.setAttribute('stroke-width', '3.5');
+  label.setAttribute('paint-order', 'stroke'); label.setAttribute('font-family', 'Georgia, serif'); g.appendChild(label);
   nodeLayer.appendChild(g);
   const ne: NodeEls = { g, circle, q, label, n };
   g.addEventListener('pointerdown', (ev) => startNodeDrag(ev, ne));
@@ -152,7 +165,7 @@ function render(): void {
     line.setAttribute('stroke-dasharray', st.dash);
     line.setAttribute('marker-end', lit && !e.bidirectional ? `url(#arrow-${e.kind})` : '');
     const dim = hl && !(hl.has(e.from) && hl.has(e.to));
-    line.setAttribute('opacity', dim ? '0.12' : lit ? '0.85' : '0.5');
+    line.setAttribute('opacity', dim ? '0.15' : lit ? '0.8' : '0.7');
     if (lit && e.label && !dim) {
       cap.setAttribute('x', `${(a.x + b.x) / 2}`); cap.setAttribute('y', `${(a.y + b.y) / 2 - 3}`);
       cap.setAttribute('fill', st.color); cap.textContent = e.label;
@@ -163,16 +176,18 @@ function render(): void {
     const known = seen(n.id);
     const r = n.r; // size = connection count (see above), discovered or not
     circle.setAttribute('cx', `${n.x}`); circle.setAttribute('cy', `${n.y}`); circle.setAttribute('r', `${r}`);
-    circle.setAttribute('fill', known ? KIND_COLOR[n.kind] : '#24242c');
-    circle.setAttribute('stroke', known ? '#101014' : '#3a3a46');
-    circle.setAttribute('stroke-width', focusId === n.id ? '3.5' : '1.5');
+    const hub = n.id === 'lvl:hub';
+    circle.setAttribute('fill', hub ? 'url(#hub-dome)' : known ? KIND_COLOR[n.kind] : '#ecece8');
+    circle.setAttribute('stroke', hub ? '#3a3c42' : known ? 'rgba(20,20,20,0.55)' : '#b9b9b3');
+    circle.setAttribute('stroke-width', hub ? '7' : focusId === n.id ? '3.5' : '1.4');
+    circle.setAttribute('stroke-dasharray', known || hub ? '' : '3 3');
     q.setAttribute('x', `${n.x}`); q.setAttribute('y', `${n.y}`);
-    q.setAttribute('fill', known ? '#10101480' : '#6a6a76');
+    q.setAttribute('fill', '#a3a39d');
     q.textContent = known ? '' : '?';
-    label.setAttribute('x', `${n.x}`); label.setAttribute('y', `${n.y + r + 13}`);
+    label.setAttribute('x', `${n.x}`); label.setAttribute('y', `${n.y + r + (hub ? 19 : 14)}`);
     label.textContent = known ? n.label : '';
     const dim = hl && !hl.has(n.id);
-    g.setAttribute('opacity', dim ? '0.2' : '1');
+    g.setAttribute('opacity', dim ? '0.25' : '1');
   }
 }
 
@@ -226,7 +241,7 @@ function select(id: string | null): void {
       const otherId = e.from === id ? e.to : e.from;
       const dir = e.from === id ? '→' : '←';
       const other = seen(otherId) ? nodeById.get(otherId)!.label : '???';
-      return `<div>${dir} <b>${other}</b> <span style="color:#85858f">· ${e.kind}${e.label ? ' (' + e.label + ')' : ''}</span></div>`;
+      return `<div>${dir} <b>${other}</b> <span class="how">· ${e.label ?? e.kind}</span></div>`;
     });
     panel.innerHTML =
       `<div class="kind" style="color:${KIND_COLOR[n.kind]}">${n.kind}</div>` +
@@ -235,8 +250,8 @@ function select(id: string | null): void {
   } else {
     const knownLinks = conns.filter((e) => seen(e.from === id ? e.to : e.from)).length;
     panel.innerHTML =
-      `<div class="kind">??? undiscovered</div><h2>???</h2>` +
-      `<div class="note mystery">Something you haven't found yet. Keep playing — or hit "Reveal all".</div>` +
+      `<div class="kind" style="color:rgba(30,30,30,0.45)">undiscovered</div><h2>?</h2>` +
+      `<div class="note mystery">Something you have not found yet. Keep pressing. Or cheat: reveal all.</div>` +
       `<div class="links">${knownLinks} known connection${knownLinks === 1 ? '' : 's'} lead${knownLinks === 1 ? 's' : ''} here.</div>`;
   }
   panel.classList.add('show');
@@ -247,7 +262,11 @@ function select(id: string | null): void {
 function updateCount(): void {
   const total = nodes.length;
   const got = revealAll ? total : nodes.filter((n) => isDiscovered(n.id)).length;
-  byId('count').textContent = `Discovered ${got} / ${total}`;
+  byId('count').textContent = revealAll
+    ? `everything, revealed. ${total} things. no surprises left.`
+    : got >= total
+      ? `all ${total} of them. there is nothing left to find.`
+      : `you have found ${got} of ${total} things.`;
 }
 byId('reveal').addEventListener('click', () => {
   revealAll = !revealAll;
@@ -269,7 +288,7 @@ onProgress(() => { updateCount(); if (focusId) select(focusId); render(); });
     ['controls', 'controls'], ['shields', 'shields vs train']];
   byId('legend').innerHTML =
     kinds.map(([k, l]) => `<div class="row"><span class="dot" style="background:${KIND_COLOR[k]}"></span>${l}</div>`).join('') +
-    `<div class="row" style="margin-top:6px;color:#76767f">— links —</div>` +
+    `<div class="row sep">links</div>` +
     edgeKinds.map(([k, l]) => `<div class="row"><span class="ln" style="border-color:${EDGE_STYLE[k].color}"></span>${l}</div>`).join('');
 })();
 

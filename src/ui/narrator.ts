@@ -6,7 +6,7 @@
 // saw, a clean landing) jumps the whole queue: it drops everything pending,
 // interrupts whatever is speaking, and plays immediately so the timing fits.
 
-import { speak } from '../audio/tts';
+import { speak, isSpeaking } from '../audio/tts';
 
 interface Line {
   text: string;
@@ -83,10 +83,17 @@ function present(line: Line, immediate: boolean): void {
       node.style.opacity = '1';
     });
   }
-  timers.push(
-    window.setTimeout(() => {
-      node.style.opacity = '0';
-      timers.push(window.setTimeout(pump, fadeMs + 120));
-    }, line.hold),
-  );
+  // After its hold, the line waits for its own speech to finish (up to 12 s
+  // more) before fading — the next queued line's speak() would cut it off.
+  // Priority lines still interrupt at once (they call present directly).
+  const started = performance.now();
+  const finish = () => {
+    if (isSpeaking() && performance.now() - started < line.hold + 12000) {
+      timers.push(window.setTimeout(finish, 150));
+      return;
+    }
+    node.style.opacity = '0';
+    timers.push(window.setTimeout(pump, fadeMs + 120));
+  };
+  timers.push(window.setTimeout(finish, line.hold));
 }

@@ -144,12 +144,14 @@ export function spawnDuck(ctx: GameContext, x: number, z: number, opts: DuckOpts
     onGrab: () => { duck.held = true; quack(); },
     onRelease: () => { duck.held = false; },
     heldUpdate: (_dt, o, _q, f) => o.rotation.set(0, Math.atan2(f.x, f.z) + Math.PI, 0),
-    onThrow: () => {
+    clickThrows: true,
+    onThrow: (charge) => {
       duck.held = false;
       duck.flying = true;
       const fwd = new THREE.Vector3();
       ctx.camera.getWorldDirection(fwd);
-      const v = fwd.multiplyScalar(THROW_SPEED).add(new THREE.Vector3(0, THROW_UP, 0));
+      // A click lobs it; a full charge throws it ~1.4× the old fixed throw.
+      const v = fwd.multiplyScalar(THROW_SPEED * (0.6 + 0.8 * charge)).add(new THREE.Vector3(0, THROW_UP, 0));
       quack();
       ctx.launchProjectile(object, v, {
         radius: DUCK_R,

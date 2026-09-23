@@ -21,6 +21,13 @@ function loadQuack(): void {
     .catch(() => { quackLoading = false; });
 }
 
+/** The live audio graph (context + master gain) for a level that plays its own
+ *  buffers (e.g. looping music), or null before the first user gesture. */
+export function audioOut(): { ctx: AudioContext; master: GainNode } | null {
+  ensureAudio();
+  return ctx && master ? { ctx, master } : null;
+}
+
 export function ensureAudio(): void {
   if (ctx) {
     if (ctx.state === 'suspended') void ctx.resume();
@@ -46,7 +53,7 @@ function now(): number {
   return ctx ? ctx.currentTime : 0;
 }
 
-interface ToneOpts {
+export interface ToneOpts {
   type?: OscillatorType;
   from: number;
   to?: number;
@@ -55,7 +62,9 @@ interface ToneOpts {
   attack?: number;
 }
 
-function tone({ type = 'sine', from, to = from, dur, gain = 0.3, attack = 0.005 }: ToneOpts): void {
+/** A single synthesised tone (the building block of most sounds here) —
+ *  exported so a level can compose its own sounds. */
+export function tone({ type = 'sine', from, to = from, dur, gain = 0.3, attack = 0.005 }: ToneOpts): void {
   if (!ctx || !master) return;
   const t = now();
   const osc = ctx.createOscillator();
@@ -71,7 +80,8 @@ function tone({ type = 'sine', from, to = from, dur, gain = 0.3, attack = 0.005 
   osc.stop(t + dur + 0.02);
 }
 
-function noise(dur: number, gain = 0.3, filterHz = 1200, type: BiquadFilterType = 'lowpass'): void {
+/** A burst of filtered white noise — exported alongside tone(). */
+export function noise(dur: number, gain = 0.3, filterHz = 1200, type: BiquadFilterType = 'lowpass'): void {
   if (!ctx || !master || !noiseBuf) return;
   const t = now();
   const src = ctx.createBufferSource();
@@ -214,4 +224,81 @@ export function trainHorn(): void {
   ensureAudio();
   tone({ type: 'sawtooth', from: 150, to: 145, dur: 0.5, gain: 0.22 });
   tone({ type: 'sawtooth', from: 110, to: 108, dur: 0.7, gain: 0.22 });
+}
+
+/** One strike of a level-crossing bell: a bright, quick ding. `gain` lets the
+ *  caller fade it with distance. */
+export function crossingBell(gain = 0.12): void {
+  ensureAudio();
+  tone({ type: 'triangle', from: 1480, to: 1440, dur: 0.22, gain });
+  tone({ type: 'sine', from: 2960, to: 2900, dur: 0.12, gain: gain * 0.4 });
+}
+
+// ── The big top ──
+
+/** A snare roll: rapid filtered-noise hits over `dur` seconds. */
+export function drumroll(dur = 1.2): void {
+  ensureAudio();
+  if (!ctx || !master || !noiseBuf) return;
+  const t0 = now();
+  for (let t = 0; t < dur; t += 0.045) {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 1800;
+    const g = ctx.createGain();
+    const peak = 0.08 + 0.14 * (t / dur); // swells
+    g.gain.setValueAtTime(peak, t0 + t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + t + 0.04);
+    src.connect(filt).connect(g).connect(master);
+    src.start(t0 + t, Math.random() * 0.5);
+    src.stop(t0 + t + 0.05);
+  }
+}
+
+/** A short brassy ta-daa. */
+export function fanfare(): void {
+  ensureAudio();
+  if (!ctx) return;
+  const notes: [number, number, number][] = [[392, 0, 0.12], [523, 0.13, 0.12], [659, 0.26, 0.55]];
+  for (const [f, at, dur] of notes) {
+    window.setTimeout(() => {
+      tone({ type: 'sawtooth', from: f, dur, gain: 0.14, attack: 0.02 });
+      tone({ type: 'square', from: f * 2, dur, gain: 0.04, attack: 0.02 });
+    }, at * 1000);
+  }
+}
+
+/** A crowd's applause — a wash of broadband noise with a clappy flutter. */
+export function applause(gain = 0.22, dur = 1.8): void {
+  ensureAudio();
+  noise(dur, gain, 3200, 'bandpass');
+  for (let t = 0; t < dur * 0.8; t += 0.07) {
+    window.setTimeout(() => noise(0.03, gain * 0.5, 2400, 'highpass'), t * 1000 * (0.8 + Math.random() * 0.4));
+  }
+}
+
+/** A disappointed crowd: a low, falling "booo". */
+export function boo(): void {
+  ensureAudio();
+  tone({ type: 'sawtooth', from: 150, to: 110, dur: 1.1, gain: 0.08, attack: 0.15 });
+  tone({ type: 'sawtooth', from: 190, to: 140, dur: 1.0, gain: 0.05, attack: 0.2 });
+  noise(1.0, 0.06, 500, 'lowpass');
+}
+
+/** Wah, wah, wah, wahhh. */
+export function sadTrombone(): void {
+  ensureAudio();
+  const steps: [number, number, number][] = [[311, 0, 0.35], [294, 0.38, 0.35], [277, 0.76, 0.35], [262, 1.14, 0.9]];
+  for (const [f, at, dur] of steps) {
+    window.setTimeout(() => tone({ type: 'sawtooth', from: f, to: f * (dur > 0.5 ? 0.94 : 0.99), dur, gain: 0.12, attack: 0.04 }), at * 1000);
+  }
+}
+
+/** A clown horn: honk-honk. */
+export function honk(): void {
+  ensureAudio();
+  tone({ type: 'square', from: 420, to: 380, dur: 0.14, gain: 0.16 });
+  window.setTimeout(() => tone({ type: 'square', from: 360, to: 320, dur: 0.18, gain: 0.16 }), 170);
 }

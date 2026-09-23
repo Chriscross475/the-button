@@ -91,7 +91,7 @@ export const desktopScheme: InputScheme = {
       // Locked → left-click presses whatever the centre crosshair is aimed at
       // (same in-range + facing-cone logic as the E key). This is reliable;
       // a raycast from the frozen pointer-lock cursor position is not.
-      options.onInteract?.();
+      options.onInteract?.(e.button);
     });
 
     canvas.addEventListener('mousemove', (e) => {

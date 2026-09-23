@@ -1,16 +1,16 @@
 import * as THREE from 'three';
-import type { GameContext, ControlMode } from '../game/types';
+import type { GameContext } from '../game/types';
 import { addUpdater } from '../experiences/scheduler';
 import { createAsset } from '../assets';
 import { COLOR, glow, matte } from '../assets/palette';
 import { registerInteractable } from '../interactables/system';
+import type { Interactable } from '../interactables/types';
 import { defineCombine } from '../game/combine';
-import { setYaw, setPitch } from '../controls/player-camera';
 import { spawnPedestalButton } from '../button/pedestal-button';
 import { click, blip, pop, thud, quack, sparkle, whoosh } from '../audio/sfx';
 import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
-import { walkThroughPortal } from './scaffold';
+import { buildExitRoom } from './exit-room';
 import { CONFIG } from '../config';
 
 // THE BOOTH — you become the narrator. The room turns into a recording booth;
@@ -51,7 +51,7 @@ defineCombine('axe', 'booth-cable', () => {
   return true;
 });
 
-const INTRO = vo('Oh. You. I am stepping out for five minutes. Do not touch the soundboard. A and D pick a line, E plays it. Not that you will need to know that.');
+const INTRO = vo('Oh. You. I am stepping out for five minutes. Do not touch the soundboard. You look at a button and you press it. Not that you will need to know that.');
 const END_OUT = vo('Who let you in here. Put that down. Do not touch the — oh. You got it out. You would make a decent narrator. That is not a compliment.');
 const END_BROKEN = vo('I was gone four minutes. Four. It is staring at the glass and it will not stop. I am unplugging everything. Out.');
 const END_SILENT = vo('You cut my cable. And it worked. It performs better without me. Nobody hears about this.');
@@ -89,7 +89,6 @@ const KEY_SPOT = new THREE.Vector3(1.0, 0, -9.0); // four steps behind its start
 const DOOR_SPOT = new THREE.Vector3(-4.2, 0, SET_DOOR_Z);
 const BUTTON_SPOT = new THREE.Vector3(1.0, 0, -15.5);
 const DESK_Z = -5.7;
-const VIEW = new THREE.Vector3(0, 2.0, -3.8); // the operator's eye, in control mode
 const WALK_SPEED = 1.4;
 
 type Pose = 'stand' | 'fallen' | 'gone';
@@ -126,6 +125,9 @@ export function revealBooth(ctx: GameContext): void {
   box(DOOR_W, h - 2.4, 0.2, 0, 2.4 + (h - 2.4) / 2, d / 2, panel);
   const doorHinge = new THREE.Group();
   doorHinge.position.set(-DOOR_W / 2, 0, d / 2);
+  // Behind his door, a white exit room (built now, out of sight, so nothing is
+  // added mid-level): it's where every ending lets you out.
+  const exitRoom = buildExitRoom(ctx, { center: new THREE.Vector3(0, 0, d / 2 + 0.3 + 4.5), facing: 'negZ' });
   root.add(doorHinge);
   const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(DOOR_W, 2.4, 0.08), trim);
   doorLeaf.position.set(DOOR_W / 2, 1.2, 0);
@@ -155,8 +157,8 @@ export function revealBooth(ctx: GameContext): void {
   box(4.6, 0.08, 1.0, 0, 0.8, DESK_Z, trim);
   box(4.6, 0.8, 0.1, 0, 0.4, DESK_Z - 0.45, panel);
   const board = new THREE.Group();
-  board.position.set(0, 0.86, DESK_Z + 0.05);
-  board.rotation.x = -0.35;
+  board.position.set(0, 0.97, DESK_Z + 0.05); // lifted so the tilted near edge clears the desk
+  board.rotation.x = 0.35; // far edge up: the keys face the player
   root.add(board);
   const boardBase = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.06, 0.62), matte(0x17181b, 0.6));
   board.add(boardBase);
@@ -521,55 +523,53 @@ export function revealBooth(ctx: GameContext): void {
         doorHinge.rotation.y = -1.7 * t; // his door — now yours
         return t >= 1;
       });
+      // Through his door into the exit room (its button moves you on). The
+      // doorway overlaps both sides by well over 2 × the player radius.
       ctx.setRegions([
         { minX: -w / 2 + 0.4, maxX: w / 2 - 0.4, minZ: DESK_Z + 0.75, maxZ: d / 2 - 0.4, floorY: 0 },
-        { minX: -DOOR_W / 2 + 0.2, maxX: DOOR_W / 2 - 0.2, minZ: d / 2 - 1, maxZ: d / 2 + 3, floorY: 0 },
+        { minX: -DOOR_W / 2 + 0.2, maxX: DOOR_W / 2 - 0.2, minZ: d / 2 - 1.6, maxZ: d / 2 + 1.6, floorY: 0 },
+        exitRoom,
       ]);
-      const hall = new THREE.Mesh(new THREE.PlaneGeometry(DOOR_W, 2.4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-      hall.position.set(0, 1.2, d / 2 + 2.6);
-      hall.rotation.y = Math.PI;
-      root.add(hall);
-      walkThroughPortal(ctx, { zone: (p) => p.z > d / 2 + 1.2, ref: new THREE.Vector3(0, 0, d / 2 + 1.5) });
     });
   };
 
   // ── Operating the board ──
-  let sel = 0;
-  let prevX = 0;
-  const enterPos = new THREE.Vector3();
-  let enterYaw = 0;
+  // A ray from the crosshair picks the key: it hits the board or a key, and the
+  // nearest key cell under the hit point is the one you are aiming at. The
+  // board's interactable only claims E / click while a key is aimed at, and the
+  // lit key is its only prompt.
+  const aim = new THREE.Raycaster();
+  aim.far = 3;
+  const CROSSHAIR = new THREE.Vector2(0, 0);
+  const aimLocal = new THREE.Vector3();
+  let sel = -1;
   const showSel = () => {
     keys.forEach((k, i) => {
       k.material.emissive.setHex(i === sel && !silent ? 0x806010 : 0x000000);
       k.position.y = i === sel && !silent ? 0.03 : 0.05;
     });
     if (silent) drawScreen('NO SIGNAL', '#ff4040');
-    else if (!resolved) drawScreen(BOARD[sel][1]);
+    else if (!resolved && sel >= 0) drawScreen(BOARD[sel][1]);
   };
-  showSel();
-  const exitControl = () => {
-    ctx.setControlMode(null);
-    ctx.camera.position.copy(enterPos);
-    setYaw(enterYaw);
-    setPitch(0);
-    ctx.camera.rotation.set(0, enterYaw, 0, 'YXZ');
+  drawScreen('ON STANDBY');
+  const aimedKey = (): number => {
+    aim.setFromCamera(CROSSHAIR, ctx.camera);
+    const hit = aim.intersectObjects([boardBase, ...keys], false)[0];
+    if (!hit) return -1;
+    board.worldToLocal(aimLocal.copy(hit.point));
+    return keys.findIndex((k) => Math.abs(aimLocal.x - k.position.x) < 0.27 && Math.abs(aimLocal.z - k.position.z) < 0.15);
   };
-  const control: ControlMode = {
-    update(_dt, input) {
-      if (!silent) {
-        if (input.moveX > 0.5 && prevX <= 0.5) (sel = (sel + 1) % BOARD.length, click(), showSel());
-        else if (input.moveX < -0.5 && prevX >= -0.5) (sel = (sel + BOARD.length - 1) % BOARD.length, click(), showSel());
-      }
-      prevX = input.moveX;
-      if (input.moveY > 0.5) return exitControl();
-      ctx.camera.position.copy(VIEW);
-      ctx.camera.lookAt(0, 0.9, -12);
-    },
-    onInteract() {
+  const boardUse: Interactable = {
+    id: 'booth-board',
+    position: new THREE.Vector3(0, 0.9, DESK_Z),
+    radius: 2.2,
+    promptLabel: '',
+    onUse() {
+      if (sel < 0) return;
       if (resolved || busy()) return blip();
+      click();
       if (silent) {
         setOnAir(true);
-        click();
         ctx.after(500, () => setOnAir(false));
         nextRightThing();
         return;
@@ -586,20 +586,16 @@ export function revealBooth(ctx: GameContext): void {
       });
     },
   };
-  registerInteractable({
-    id: 'booth-board',
-    position: new THREE.Vector3(0, 0, DESK_Z + 0.5),
-    radius: 2.2,
-    promptLabel: 'OPERATE',
-    labelOffsetY: 1.3,
-    onUse() {
-      enterPos.copy(ctx.camera.position);
-      const dir = new THREE.Vector3();
-      ctx.camera.getWorldDirection(dir);
-      enterYaw = Math.atan2(-dir.x, -dir.z);
-      prevX = 0;
-      ctx.setControlMode(control);
-    },
+  registerInteractable(boardUse);
+  addUpdater(() => {
+    const next = aimedKey();
+    if (next !== sel) {
+      sel = next;
+      showSel();
+    }
+    boardUse.promptLabel = sel >= 0 ? 'PLAY' : ''; // non-empty = claims the press
+    if (sel >= 0) keys[sel].getWorldPosition(boardUse.position);
+    return false;
   });
 
   // ── The things you carried in (mostly: jokes) ──
@@ -631,7 +627,6 @@ export function revealBooth(ctx: GameContext): void {
       pop();
       cable.scale.set(1, 0.45, 1); // cut short
       cable.position.x += 0.8;
-      sel = 0;
       showSel();
       setOnAir(false);
     },

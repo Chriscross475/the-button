@@ -13,14 +13,15 @@ import { spawnBabyWolf as spawnWolfPup } from '../objects/wolf';
 import { rewardPlinth as kitRewardPlinth } from './scaffold';
 import { buildExitRoom } from './exit-room';
 import { vo } from '../audio/vo-shared';
+import { discover } from '../graph/progress';
 
 // A LEVEL — the duck room, reworked into a dark, comedic moral-choice level.
-// A dispenser pedestal vends ONE cute, wandering duck per press. Reach 50 and
+// A dispenser pedestal vends ONE cute, wandering duck per press. Reach the quota and
 // the back wall opens onto two fenced enclosures: a happy farm and a circular
 // saw. Then it's on you — grab a duck with the crosshair, charge a throw, and
 // lob it. Where it lands decides its fate, and the narrator judges you for it.
 
-const QUOTA = 20;
+const QUOTA = 15;
 const DUCK_RADIUS = 0.2;
 
 // Wander tuning (room ducks).
@@ -110,16 +111,26 @@ export function revealDucks(ctx: GameContext): void {
   // Remove the ceiling; KEEP the button — it becomes the duck dispenser.
   ctx.openRoom({ walls: false, keepButton: true });
 
-  // A soft sky overhead, seen through the open ceiling.
+  // A soft sky overhead, seen through the open ceiling — and far fog, set
+  // outright: the white room's own fog (9–34 m) would swallow the farmland.
   const startBg = (ctx.scene.background as THREE.Color)?.clone() ?? new THREE.Color(0xf4f4f2);
   const sky = new THREE.Color(0xbfe3ff);
+  const fog = new THREE.Fog(startBg.getHex(), 45, 280);
+  ctx.scene.fog = fog;
   let tb = 0;
   addUpdater((dt) => {
     tb += dt;
     const k = Math.min(1, tb / 1.6);
-    (ctx.scene.background as THREE.Color).copy(startBg.clone().lerp(sky, k));
+    const c = startBg.clone().lerp(sky, k);
+    if (ctx.scene.background instanceof THREE.Color) ctx.scene.background.copy(c);
+    else ctx.scene.background = c;
+    fog.color.copy(c);
     return k >= 1;
   });
+
+  // The world outside the walls: open farmland to the horizon, revealed a wall
+  // at a time. (Only the hilltops and the windmill peek over the walls at first.)
+  buildFarmland(ctx);
 
   // ── A wandering duck. Each owns its own wander/waddle/hold/throw state. ──
   interface Duck {
@@ -150,6 +161,7 @@ export function revealDucks(ctx: GameContext): void {
       onRelease: () => {
         duck.held = false;
       },
+      clickThrows: true,
       onThrow: (charge) => throwDuck(duck, charge),
     };
     const duck: Duck = { group, held: false, flying: false, falling: false, homed: false, carry, bounds };
@@ -258,6 +270,15 @@ export function revealDucks(ctx: GameContext): void {
   const foodNearX = w / 2 + 1.4;
   const foodEnc: Rect = { minX: foodNearX, maxX: foodNearX + 6, minZ: -2.5, maxZ: 3.5 };
 
+  // ── The pond, just past the pens: lob a duck over the fences and it swims.
+  //    No path, no verdict from the level — just a duck, being a duck. (It
+  //    counts as dealt with, like a penned one, so it can't soft-lock the end.) ──
+  const POND = new THREE.Vector3(0, 0, encFarZ - 5.6);
+  const POND_R = 3.6;
+  const pondSwim: Rect = { minX: POND.x - POND_R * 0.62, maxX: POND.x + POND_R * 0.62, minZ: POND.z - POND_R * 0.62, maxZ: POND.z + POND_R * 0.62 };
+  const inPond = (x: number, z: number) => Math.hypot(x - POND.x, z - POND.z) < POND_R;
+  const pond = buildPond(root, POND, POND_R);
+
   // ── Throw / outcome state (grab + hold + throw input is the GLOBAL carry) ──
   let throwCount = 0;
   let active = true;
@@ -284,6 +305,11 @@ export function revealDucks(ctx: GameContext): void {
 
   // Five distinct lines per outcome, served via shuffleBag() so all five play
   // before any repeats (no same-line-twice within a streak).
+  const POND_LINES = vo([
+    'Into the pond. It floats. It paddles. That is not a choice, that is a holiday.',
+    'Splash. No saw, no farm, no moral. Just a duck, being a duck.',
+    'The pond does not judge you. I do. But the duck seems fine.',
+  ]);
   const SAW_LINES = vo([
     'Oh. Oh no. Well. You chose that.',
     'That one had a name, probably. Not anymore.',
@@ -322,6 +348,7 @@ export function revealDucks(ctx: GameContext): void {
   const farmLine = shuffleBag(FARM_LINES);
   const wolfLine = shuffleBag(WOLF_LINES);
   const standLine = shuffleBag(STAND_LINES);
+  const pondLine = shuffleBag(POND_LINES);
   // Throwing ducks AT the stand → "hire" them. Sarcastic, delighted-with-you.
   const EMPLOYEE_OPEN_LINE =
     vo('Oh — yes. Brilliant. Why merely cook them when they could STAFF the place? Their labour as well as their lives. You should be running this country.');
@@ -422,6 +449,16 @@ export function revealDucks(ctx: GameContext): void {
     throwCount++;
     const px = duck.group.position.x;
     const pz = duck.group.position.z;
+    if (opened && inPond(px, pz)) {
+      // Splash. It floats, and paddles off — no splat, however hard it landed.
+      pond.splash(duck.group.position);
+      discover('mech:pond');
+      homeDuck(duck, pondSwim);
+      quack();
+      ctx.narrate(pondLine(), 4500, { priority: true });
+      checkAllUsed();
+      return;
+    }
     thud();
     if (opened && inRect(px, pz, sawEnc)) {
       // Grim outcome: feathers, sharp impact, duck removed.
@@ -471,8 +508,8 @@ export function revealDucks(ctx: GameContext): void {
       checkAllUsed();
     } else if (impact > HARD_IMPACT) {
       // Slammed into the bare floor from a high throw → it splats. While still
-      // filling the quota, a death drops the count again (you must keep 50
-      // alive); once 50 is reached the level is done and the count is locked.
+      // filling the quota, a death drops the count again (you must keep the quota
+      // alive); once it is reached the level is done and the count is locked.
       spawnFeathers(root, duck.group.position.clone());
       removeDuck(duck);
       if (!opened && count > 0) {
@@ -665,6 +702,7 @@ export function revealDucks(ctx: GameContext): void {
       thud();
       if (wolfFeeds >= WOLF_TAME && wolf) {
         wolfFreed = true;
+        wolf.userData.adultWolf = true; // (grandma's cottage in the forest takes note)
         ctx.setCompanion(wolf); // sated + fond of you → follows you out, across levels
         resolve('wolf-freed');
       } else {
@@ -681,7 +719,10 @@ export function revealDucks(ctx: GameContext): void {
       pop();
       thud();
       wolfFreed = true;
-      if (wolf) ctx.setCompanion(wolf);
+      if (wolf) {
+        wolf.userData.adultWolf = true;
+        ctx.setCompanion(wolf);
+      }
       ctx.narrate('It cannot spend a single note of it. It takes the money anyway, and falls in beside you — a creditor now, as well as a wolf.', 6500, { priority: true });
       resolve('wolf-freed');
     });
@@ -1094,3 +1135,213 @@ function scatterFood(
 }
 
 // (spawnFeathers now lives in assets/effects — shared with the axe→duck chop.)
+
+// ── The farmland outside the walls ────────────────────────────────────────
+// Everything past the room, out to the horizon: a big meadow, rolling hills,
+// clumps of trees, a red barn, a turning windmill and a few clouds. Instanced
+// where there are many, so it's cheap. Kept clear of the pens (−Z), the wolf
+// (−X), the stand (+X) and the exit corridor (+Z): nothing within 28 m.
+function buildFarmland(ctx: GameContext): void {
+  const root = ctx.levelRoot;
+  const rng = (() => {
+    let s = 7;
+    return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 0xffffffff);
+  })();
+
+  const meadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(700, 700),
+    new THREE.MeshStandardMaterial({ color: 0x5b9a45, roughness: 1 }),
+  );
+  meadow.rotation.x = -Math.PI / 2;
+  meadow.position.y = -0.02; // under the room floor and the pens' aprons
+  meadow.receiveShadow = true;
+  root.add(meadow);
+  root.add(new THREE.HemisphereLight(0xdff1ff, 0x4f7a3a, 0.5));
+
+  // Rolling hills on the horizon: big squashed spheres, half sunk.
+  const hillMat = new THREE.MeshStandardMaterial({ color: 0x6fa352, roughness: 1, flatShading: true });
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2 + rng() * 0.3;
+    const dist = 170 + rng() * 90;
+    const rad = 35 + rng() * 40;
+    const hill = new THREE.Mesh(new THREE.SphereGeometry(rad, 16, 10), hillMat);
+    hill.scale.y = 0.28 + rng() * 0.15;
+    hill.position.set(Math.sin(a) * dist, -rad * 0.05, Math.cos(a) * dist);
+    root.add(hill);
+  }
+
+  // Tree clumps: instanced trunks + two-tier canopies.
+  const trees: { x: number; z: number; s: number }[] = [];
+  for (let c = 0; c < 18; c++) {
+    const a = rng() * Math.PI * 2;
+    const dist = 32 + rng() * 90;
+    const cx = Math.sin(a) * dist;
+    const cz = Math.cos(a) * dist;
+    const n = 4 + Math.floor(rng() * 8);
+    for (let k = 0; k < n; k++) {
+      const x = cx + (rng() - 0.5) * 12;
+      const z = cz + (rng() - 0.5) * 12;
+      if (Math.hypot(x, z) < 28) continue;
+      trees.push({ x, z, s: 0.8 + rng() * 0.9 });
+    }
+  }
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.18, 0.25, 1.6, 6), new THREE.MeshStandardMaterial({ color: 0x5a3e24, roughness: 1 }), trees.length);
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f6e2c, roughness: 0.9, flatShading: true });
+  const canopyLow = new THREE.InstancedMesh(new THREE.ConeGeometry(1.5, 2.6, 7), leafMat, trees.length);
+  const canopyHigh = new THREE.InstancedMesh(new THREE.ConeGeometry(1.1, 2.0, 7), leafMat, trees.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const sc = new THREE.Vector3();
+  const at = new THREE.Vector3();
+  trees.forEach((t, i) => {
+    sc.setScalar(t.s);
+    trunk.setMatrixAt(i, m.compose(at.set(t.x, 0.8 * t.s, t.z), q, sc));
+    canopyLow.setMatrixAt(i, m.compose(at.set(t.x, 2.4 * t.s, t.z), q, sc));
+    canopyHigh.setMatrixAt(i, m.compose(at.set(t.x, 3.6 * t.s, t.z), q, sc));
+  });
+  root.add(trunk, canopyLow, canopyHigh);
+
+  // A red barn off to the back-left.
+  const barn = new THREE.Group();
+  barn.position.set(-48, 0, -58);
+  barn.rotation.y = 0.5;
+  const red = new THREE.MeshStandardMaterial({ color: 0xa8322a, roughness: 0.9, flatShading: true });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf2eee4, roughness: 0.9 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(12, 7, 16), red);
+  body.position.y = 3.5;
+  barn.add(body);
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(6.6, 6.6, 16.4, 4, 1, false, Math.PI / 4), new THREE.MeshStandardMaterial({ color: 0x4a4a52, roughness: 0.8, flatShading: true }));
+  roof.rotation.x = Math.PI / 2;
+  roof.scale.set(1.3, 1, 0.55);
+  roof.position.y = 7;
+  barn.add(roof);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(4, 4.4, 0.1), white);
+  door.position.set(0, 2.2, 8.02);
+  barn.add(door);
+  root.add(barn);
+
+  // A windmill off to the back-right; its sails turn.
+  const mill = new THREE.Group();
+  mill.position.set(56, 0, -70);
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 3.6, 16, 8), white);
+  tower.position.y = 8;
+  mill.add(tower);
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.8, 3, 8), red);
+  cap.position.y = 17.5;
+  mill.add(cap);
+  const sails = new THREE.Group();
+  sails.position.set(0, 15.5, 2.6);
+  for (let k = 0; k < 4; k++) {
+    const sail = new THREE.Mesh(new THREE.BoxGeometry(1.4, 9, 0.12), white);
+    sail.position.y = 4.8;
+    const arm = new THREE.Group();
+    arm.rotation.z = (k * Math.PI) / 2;
+    arm.add(sail);
+    sails.add(arm);
+  }
+  mill.add(sails);
+  mill.rotation.y = -0.6;
+  root.add(mill);
+
+  // Clouds: lumpy white clusters, drifting.
+  const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+  const clouds: THREE.Group[] = [];
+  for (let i = 0; i < 9; i++) {
+    const cl = new THREE.Group();
+    for (let k = 0; k < 4; k++) {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(5 + rng() * 5, 8, 6), cloudMat);
+      puff.position.set((k - 1.5) * 6, rng() * 2, (rng() - 0.5) * 5);
+      puff.scale.y = 0.55;
+      cl.add(puff);
+    }
+    const a = rng() * Math.PI * 2;
+    const dist = 60 + rng() * 150;
+    cl.position.set(Math.sin(a) * dist, 45 + rng() * 25, Math.cos(a) * dist);
+    root.add(cl);
+    clouds.push(cl);
+  }
+
+  addUpdater((dt) => {
+    if (!sails.parent) return true;
+    sails.rotation.z += dt * 0.6;
+    for (const cl of clouds) {
+      cl.position.x += dt * 1.2;
+      if (cl.position.x > 220) cl.position.x = -220;
+    }
+    return false;
+  });
+}
+
+// The pond: a sunken water disc, a ring of stones, reeds and lily pads. Its
+// splash() throws out an expanding ring where something lands.
+function buildPond(root: THREE.Object3D, c: THREE.Vector3, r: number): { splash: (at: THREE.Vector3) => void } {
+  const bank = new THREE.Mesh(new THREE.CircleGeometry(r + 0.7, 40), new THREE.MeshStandardMaterial({ color: 0x6b5a3a, roughness: 1 }));
+  bank.rotation.x = -Math.PI / 2;
+  bank.position.set(c.x, 0.005, c.z);
+  root.add(bank);
+  const water = new THREE.Mesh(
+    new THREE.CircleGeometry(r, 40),
+    new THREE.MeshStandardMaterial({ color: 0x3f8fc0, roughness: 0.15, metalness: 0.2, transparent: true, opacity: 0.9 }),
+  );
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(c.x, 0.03, c.z);
+  root.add(water);
+
+  const stones = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.28), new THREE.MeshStandardMaterial({ color: 0x8a8a86, roughness: 1, flatShading: true }), 26);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const sc = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  for (let i = 0; i < 26; i++) {
+    const a = (i / 26) * Math.PI * 2 + Math.sin(i * 7) * 0.1;
+    q.setFromEuler(new THREE.Euler(i, i * 2, i * 3));
+    sc.setScalar(0.7 + ((i * 37) % 10) / 12);
+    stones.setMatrixAt(i, m.compose(p.set(c.x + Math.cos(a) * (r + 0.3), 0.1, c.z + Math.sin(a) * (r + 0.3)), q, sc));
+  }
+  root.add(stones);
+
+  const reeds = new THREE.InstancedMesh(new THREE.ConeGeometry(0.035, 1.1, 4), new THREE.MeshStandardMaterial({ color: 0x5c7a2e, roughness: 1 }), 40);
+  for (let i = 0; i < 40; i++) {
+    const a = 2.2 + (i / 40) * 1.6 + Math.sin(i * 3.1) * 0.15; // a clump on one side
+    const rr = r - 0.2 + Math.sin(i * 1.7) * 0.4;
+    q.setFromEuler(new THREE.Euler(Math.sin(i) * 0.15, 0, Math.cos(i) * 0.15));
+    sc.set(1, 0.7 + ((i * 13) % 7) / 10, 1);
+    reeds.setMatrixAt(i, m.compose(p.set(c.x + Math.cos(a) * rr, 0.5, c.z + Math.sin(a) * rr), q, sc));
+  }
+  root.add(reeds);
+
+  const padMat = new THREE.MeshStandardMaterial({ color: 0x3f8a3a, roughness: 0.8, side: THREE.DoubleSide });
+  for (let i = 0; i < 6; i++) {
+    const a = i * 1.9;
+    const pad = new THREE.Mesh(new THREE.CircleGeometry(0.3 + (i % 3) * 0.08, 12, 0.3, Math.PI * 2 - 0.6), padMat);
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.set(c.x + Math.cos(a) * r * 0.55, 0.04, c.z + Math.sin(a) * r * 0.55);
+    root.add(pad);
+  }
+
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xe8f6ff, transparent: true, opacity: 0.8, depthWrite: false });
+  return {
+    splash: (at) => {
+      pop();
+      for (let k = 0; k < 2; k++) {
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.26, 24), ringMat.clone());
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(at.x, 0.05, at.z);
+        root.add(ring);
+        let t = -k * 0.18;
+        addUpdater((dt) => {
+          t += dt;
+          if (t < 0) return false;
+          const s = 1 + t * 7;
+          ring.scale.set(s, s, 1);
+          (ring.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.8 - t * 0.9);
+          if (t > 0.9) {
+            root.remove(ring);
+            return true;
+          }
+          return false;
+        });
+      }
+    },
+  };
+}

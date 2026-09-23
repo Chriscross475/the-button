@@ -2,8 +2,8 @@
 
 A first-person comedic web game — a dry, Stanley-Parable-style narrator and one
 very tempting button. Pressing it transforms the white room in place into one of
-several **experiences** (ducks, a forest, a train tunnel, doors, the button gag,
-a trainyard slingshot, hoops, a circus…), each with its own gag and an exit back
+several **experiences** (ducks, a forest, a desert railway crossing, doors, the
+button gag, hoops, a circus, the narrator's booth…), each with its own gag and an exit back
 to a fresh room.
 
 Built with **TypeScript + Three.js + Vite** — all geometry is code-generated; the

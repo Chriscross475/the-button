@@ -42,9 +42,10 @@ function makeDuck(): THREE.Group {
 }
 
 // A brass key: a round bow, a shaft, and a couple of bit teeth.
-function makeKey(): THREE.Group {
+// `color` tints it (the coloured keys); default brass.
+function makeKey(p?: { color?: number }): THREE.Group {
   const g = new THREE.Group();
-  const brass = new THREE.MeshStandardMaterial({ color: 0xc9a83a, roughness: 0.4, metalness: 0.8, flatShading: true });
+  const brass = new THREE.MeshStandardMaterial({ color: p?.color ?? 0xc9a83a, roughness: 0.4, metalness: 0.8, flatShading: true });
   const bow = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.035, 8, 16), brass);
   bow.position.set(0, 0.16, 0);
   g.add(bow);
@@ -55,28 +56,6 @@ function makeKey(): THREE.Group {
     const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.045, 0.03), brass);
     tooth.position.set(0.045, -0.18 + i * 0.07, 0);
     g.add(tooth);
-  }
-  return g;
-}
-
-// A pickaxe: wood handle (+Y, grip at y=0) with a double-pointed metal head.
-function makePickaxe(): THREE.Group {
-  const g = new THREE.Group();
-  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.9, flatShading: true });
-  const metal = new THREE.MeshStandardMaterial({ color: 0x55585f, roughness: 0.5, metalness: 0.6, flatShading: true });
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.0, 8), wood);
-  handle.position.y = 0.5;
-  handle.castShadow = true;
-  g.add(handle);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.08, 0.1), metal);
-  head.position.y = 1.0;
-  head.castShadow = true;
-  g.add(head);
-  for (const s of [-1, 1]) {
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.2, 6), metal);
-    tip.position.set(s * 0.42, 1.0, 0);
-    tip.rotation.z = (s * Math.PI) / 2; // points outward along ±X
-    g.add(tip);
   }
   return g;
 }
@@ -351,37 +330,116 @@ function makeStump(): THREE.Group {
 }
 
 // The crime-scene chalk outline (a flat decal on a ground plane), wrapped in a
-// group so the caller can orient it by group.rotation.y.
+// group so the caller can orient it by group.rotation.y (head toward local −Z).
+//
+// Drawn the way a cop would: ONE continuous line hugging a sprawled body, in a
+// pose picked at random (the comic ones — mid-sprint, starfish, the "hey!"
+// point). Built as a silhouette (limbs = thick round strokes, torso + head
+// filled), dilated, minus itself → an even outline ring; then chalk grain (a
+// soft shadow pass so it reads on white floors, and speckled gaps).
+type Pt = [number, number];
+interface OutlinePose {
+  head: Pt;
+  neck: Pt;
+  hip: Pt;
+  arms: [Pt, Pt, Pt][]; // shoulder → elbow → hand
+  legs: [Pt, Pt, Pt][]; // hip → knee → foot
+}
+const OUTLINE_POSES: OutlinePose[] = [
+  { // mid-sprint: one arm flung up, one leg kicked back
+    head: [150, 72], neck: [153, 104], hip: [160, 226],
+    arms: [[[138, 118], [92, 90], [74, 40]], [[172, 120], [222, 158], [266, 190]]],
+    legs: [[[148, 226], [128, 306], [138, 392]], [[172, 226], [230, 270], [222, 352]]],
+  },
+  { // starfish
+    head: [180, 70], neck: [180, 102], hip: [180, 226],
+    arms: [[[162, 118], [110, 100], [60, 62]], [[198, 118], [250, 100], [300, 62]]],
+    legs: [[[166, 226], [128, 306], [96, 392]], [[194, 226], [232, 306], [264, 392]]],
+  },
+  { // the point: one arm straight up, the other on the hip, knees buckled
+    head: [176, 96], neck: [176, 128], hip: [182, 248],
+    arms: [[[160, 142], [150, 88], [146, 24]], [[194, 144], [238, 186], [206, 232]]],
+    legs: [[[168, 248], [118, 300], [140, 392]], [[196, 248], [240, 318], [222, 394]]],
+  },
+];
+
 function makeCrimeOutline(): THREE.Group {
-  const W = 256;
-  const H = 320;
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  const c = canvas.getContext('2d')!;
-  c.strokeStyle = 'rgba(255,255,255,0.92)';
-  c.lineWidth = 6;
-  c.lineCap = 'round';
-  c.lineJoin = 'round';
-  const right: [number, number][] = [
-    [140, 78], [158, 98], [200, 120], [233, 150], [196, 144], [156, 142],
-    [152, 186], [166, 196], [160, 286], [178, 312], [150, 306], [134, 212], [128, 208],
-  ];
-  c.fillStyle = 'rgba(10,10,14,0.5)';
-  c.beginPath();
-  c.moveTo(right[0][0], right[0][1]);
-  for (let i = 1; i < right.length; i++) c.lineTo(right[i][0], right[i][1]);
-  for (let i = right.length - 2; i >= 0; i--) c.lineTo(256 - right[i][0], right[i][1]);
-  c.closePath();
-  c.fill();
-  c.stroke();
-  c.beginPath();
-  c.arc(128, 50, 27, 0, Math.PI * 2);
-  c.fill();
-  c.stroke();
-  const tex = new THREE.CanvasTexture(canvas);
+  const W = 360;
+  const H = 440;
+  const mk = () => {
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
+    return [cv, cv.getContext('2d')!] as const;
+  };
+  const pose = OUTLINE_POSES[Math.floor(Math.random() * OUTLINE_POSES.length)];
+
+  // 1. The body silhouette.
+  const [body, b] = mk();
+  b.fillStyle = b.strokeStyle = '#fff';
+  b.lineCap = b.lineJoin = 'round';
+  const limb = (pts: Pt[], w0: number, w1: number) => {
+    for (let i = 0; i < pts.length - 1; i++) {
+      b.lineWidth = i === 0 ? w0 : w1;
+      b.beginPath();
+      b.moveTo(pts[i][0], pts[i][1]);
+      b.lineTo(pts[i + 1][0], pts[i + 1][1]);
+      b.stroke();
+    }
+  };
+  for (const arm of pose.arms) {
+    limb(arm, 30, 24);
+    b.beginPath();
+    b.arc(arm[2][0], arm[2][1], 15, 0, Math.PI * 2); // hand
+    b.fill();
+  }
+  for (const leg of pose.legs) {
+    limb(leg, 40, 32);
+    const [kx, ky] = leg[1];
+    const [fx, fy] = leg[2];
+    b.beginPath();
+    b.ellipse(fx, fy, 14, 22, Math.atan2(fy - ky, fx - kx) - Math.PI / 2, 0, Math.PI * 2); // foot
+    b.fill();
+  }
+  const [nx, ny] = pose.neck;
+  const [hx, hy] = pose.hip;
+  b.beginPath(); // torso
+  b.ellipse((nx + hx) / 2, (ny + hy) / 2, 40, Math.hypot(hx - nx, hy - ny) / 2 + 16, Math.atan2(hy - ny, hx - nx) - Math.PI / 2, 0, Math.PI * 2);
+  b.fill();
+  limb([pose.neck, pose.head], 22, 22);
+  b.beginPath();
+  b.arc(pose.head[0], pose.head[1], 30, 0, Math.PI * 2);
+  b.fill();
+
+  // 2. Outline ring = silhouette dilated, minus the silhouette.
+  const [ring, r] = mk();
+  const R = 5;
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 12) r.drawImage(body, Math.cos(a) * R, Math.sin(a) * R);
+  r.globalCompositeOperation = 'destination-out';
+  r.drawImage(body, 0, 0);
+  // Chalk grain: speckled gaps, and the odd longer skip where the chalk lifted.
+  for (let i = 0; i < 1800; i++) {
+    r.fillStyle = `rgba(0,0,0,${0.25 + Math.random() * 0.6})`;
+    r.fillRect(Math.random() * W, Math.random() * H, 1 + Math.random() * 2.5, 1 + Math.random() * 2.5);
+  }
+  for (let i = 0; i < 7; i++) {
+    r.beginPath();
+    r.arc(Math.random() * W, Math.random() * H, 3 + Math.random() * 4, 0, Math.PI * 2);
+    r.fill();
+  }
+
+  // 3. Composite: a faint dark shadow under the chalk, then the chalk itself.
+  const [out, o] = mk();
+  o.globalAlpha = 0.35;
+  o.filter = 'brightness(0)';
+  o.drawImage(ring, 2, 2);
+  o.filter = 'none';
+  o.globalAlpha = 0.95;
+  o.drawImage(ring, 0, 0);
+
+  const tex = new THREE.CanvasTexture(out);
   const plane = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.4, 3.0),
+    new THREE.PlaneGeometry(2.7, 3.3),
     new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
   );
   plane.rotation.x = -Math.PI / 2;
@@ -453,7 +511,6 @@ defineAsset('duck', makeDuck);
 defineAsset('wolf', makeWolf);
 defineAsset('cooked-duck', makeCookedDuck);
 defineAsset('axe', makeAxe);
-defineAsset('pickaxe', makePickaxe);
 defineAsset('key', makeKey);
 defineAsset('tree', makeTree);
 defineAsset('campfire', makeCampfire);

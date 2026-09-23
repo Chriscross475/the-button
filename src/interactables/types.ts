@@ -16,8 +16,9 @@ export interface Interactable {
   position: THREE.Vector3;
   /** Player must be within this XZ distance to interact. */
   radius: number;
-  /** Short verb shown on the prompt: 'PRESS'. Empty string = inert (no prompt,
-   *  won't claim the press) — set while an experience is mid-run if desired. */
+  /** Its verb ('PRESS'). Never shown — interactions stay hidden; the player
+   *  finds them by trying. Empty string = inert (won't claim the press) — set
+   *  while an experience is mid-run if desired. */
   promptLabel: string;
   /** Called when the player presses USE while in range and facing it. */
   onUse: () => void;
@@ -33,6 +34,7 @@ export interface Interactable {
   onDestroy?: () => void;
   /** If true, don't auto-remove built.group on destroy. */
   keepBuiltOnDestroy?: boolean;
-  /** Vertical offset (m) above position.y for the floating label. Default 0.6. */
+  /** Vertical offset (m) above position.y of its screen-space tap anchor (the
+   *  tap-target fallback). Default 0.6. */
   labelOffsetY?: number;
 }

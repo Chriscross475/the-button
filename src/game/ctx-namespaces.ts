@@ -68,6 +68,7 @@ export function attachNamespaces(flat: GameContextFlat): GameContext {
   };
   ctx.companions = {
     setCompanion: c.setCompanion,
+    getCompanion: c.getCompanion,
     setScoringHoop: c.setScoringHoop,
   };
   ctx.modes = {

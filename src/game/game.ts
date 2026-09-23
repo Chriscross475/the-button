@@ -11,6 +11,7 @@ import {
   setPitch,
   setWheel,
   floorYAt,
+  setEyeHeight,
 } from '../controls/player-camera';
 import { createTouchInput } from '../controls/input';
 import {
@@ -21,7 +22,6 @@ import {
 } from '../interactables/system';
 import { findTapTarget } from '../controls/tap-target';
 import { isDesktopLike } from '../controls/platform';
-import { updateInteractPrompt } from '../ui/interact-prompt';
 import { narrate } from '../ui/narrator';
 import { createCarry, type Carry } from './combine';
 import { ensureAudio, thud, sparkle } from '../audio/sfx';
@@ -68,10 +68,12 @@ function segmentBoxEntry(a: THREE.Vector3, b: THREE.Vector3, w: FlightWall): num
   return t0;
 }
 
+const DEATH_INPUT_LOCK_MS = 1500;
+
 const DEATH_LINES = vo([
   'You died. The button does not mourn.',
   'Dead. We will say no more about it.',
-  'That went poorly. Try the other one.',
+  'I have added that to your file. It is a very thick file.',
   'You have been removed from the situation. Forcefully.',
   'Physics: 1. You: 0.',
 ]);
@@ -99,6 +101,7 @@ export class Game {
   private fadeTarget = 0;
   private pendingLevel: string | null = null;
   private rHoldTimer = 0; // hold-R-to-die timer
+  private diedAt = 0; // performance.now() of the last death (restart input lock)
 
   private deathEl: HTMLDivElement;
   private readonly forward = new THREE.Vector3();
@@ -167,7 +170,7 @@ export class Game {
       goToLevel: (id) => this.goToLevel(id),
       returnToHub: () => this.goToLevel('hub'),
       launchPlayer: (vel) => this.launch(vel),
-      die: (cause) => this.die(cause),
+      die: (cause, wallHit) => this.die(cause, wallHit),
       advance: (buttonPos) => this.advance(buttonPos),
       advanceTo: (expId, buttonPos, entry) => this.advanceTo(expId, buttonPos, entry),
       get entry() {
@@ -206,6 +209,7 @@ export class Game {
         this.scoringLabel = (this.companion?.getObjectByName('hoop-score-label') as THREE.Sprite) ?? null;
         this.drawHoopLabel();
       },
+      getCompanion: () => this.companion,
       setWheel: (on) => this.setWheelMode(on),
       setControlMode: (cm) => {
         // Leaving a mode that drove the camera (e.g. the slingshot turret): sync
@@ -246,7 +250,7 @@ export class Game {
     this.carry = createCarry(this.ctx, () => this.current?.obstacles ?? []);
 
     this.input = createTouchInput(canvas, {
-      onInteract: () => this.onInteract(),
+      onInteract: (mouseButton) => this.onInteract(mouseButton),
       onTap: (x, y, canPress) => this.onTap(x, y, canPress),
       onFirstInput: () => this.onFirstInput(),
     });
@@ -354,6 +358,7 @@ export class Game {
     clearInteractables();
     clearUpdaters();
     this.controlMode = null; // never carry an operating mode across levels
+    setEyeHeight(null); // nor a lowered eye (e.g. still sitting in a chair)
     // The unicycle/wheel is a KEPT reward — it persists across levels now (no
     // clear here); updateWheelVisual keeps it under the player wherever they go.
     this.carry.clearLevel(); // drop the leaving level's carryables; persistent items carry over
@@ -478,6 +483,7 @@ export class Game {
   private die(_cause?: string, wallHit?: { pos: THREE.Vector3; dir: THREE.Vector3 }): void {
     if (this.mode === 'dead') return;
     this.mode = 'dead';
+    this.diedAt = performance.now();
     this.airborne = false;
     this.carry.dropAll(); // dying drops everything you were carrying
     narrate(pick(DEATH_LINES), 6000, { priority: true }); // death lands on the moment
@@ -542,6 +548,9 @@ export class Game {
   }
 
   private restart(): void {
+    // Ignore restart input for a moment after dying, so a click or key that was
+    // already on its way (a throw, a press, a jump) doesn't skip the death.
+    if (performance.now() - this.diedAt < DEATH_INPUT_LOCK_MS) return;
     this.deathEl.style.opacity = '0';
     window.setTimeout(() => {
       this.deathEl.style.display = 'none';
@@ -554,7 +563,7 @@ export class Game {
     return this.started && !this.paused && this.mode === 'play' && !this.airborne && !this.pendingLevel;
   }
 
-  private onInteract(): void {
+  private onInteract(mouseButton?: number): void {
     if (!this.started || this.paused) return;
     if (this.mode === 'dead') {
       this.restart();
@@ -564,7 +573,12 @@ export class Game {
       this.controlMode.onInteract?.(); // the lever, while operating
       return;
     }
-    if (this.playable()) pressUse();
+    // A click with a hand whose item is aimed at a combine target belongs to the
+    // item (the key in the locked door); the carry system takes it, not the button.
+    if (mouseButton !== undefined && this.carry.clickIsCombo(mouseButton === 2 ? 'right' : 'left')) return;
+    if (!this.playable()) return;
+    if (mouseButton === undefined) this.carry.poke('right'); // E / Space presses with the right hand
+    pressUse();
   }
 
   private onTap(x: number, y: number, canPress: boolean): void {
@@ -654,7 +668,6 @@ export class Game {
     tickInteractables(dt, this.camera.position, getForwardXZ(this.forward));
     this.current?.update?.(dt);
     tickUpdaters(dt);
-    updateInteractPrompt(this.camera, this.canvas);
 
     this.updateFade(dt);
     this.renderer.render(this.scene, this.camera);
