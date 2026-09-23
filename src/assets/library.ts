@@ -271,6 +271,38 @@ function makeStatue(): THREE.Group {
   return g;
 }
 
+// The statue, jointed: the same stone figure, but its arms and legs hang from
+// pivot groups (armL/armR at the shoulders, legL/legR at the hips) so it can
+// walk and gesture. Faces +Z. Used as the booth's dummy.
+function makeDummy(): THREE.Group {
+  const g = new THREE.Group();
+  const stone = new THREE.MeshStandardMaterial({ color: 0xa8a8a4, roughness: 0.9, metalness: 0.05 });
+  const limb = (name: string, x: number, y: number, sx: number, len: number) => {
+    const pivot = new THREE.Group();
+    pivot.name = name;
+    pivot.position.set(x, y, 0);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, len, sx), stone);
+    m.position.y = -len / 2;
+    m.castShadow = true;
+    pivot.add(m);
+    g.add(pivot);
+  };
+  limb('legL', -0.12, 0.7, 0.18, 0.7);
+  limb('legR', 0.12, 0.7, 0.18, 0.7);
+  limb('armL', -0.33, 1.4, 0.12, 0.6);
+  limb('armR', 0.33, 1.4, 0.12, 0.6);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.28), stone);
+  torso.position.y = 1.05;
+  torso.castShadow = true;
+  g.add(torso);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), stone);
+  head.name = 'head';
+  head.position.y = 1.55;
+  head.castShadow = true;
+  g.add(head);
+  return g;
+}
+
 function makeRock(): THREE.Mesh {
   const m = new THREE.Mesh(
     new THREE.DodecahedronGeometry(0.3),
@@ -427,6 +459,7 @@ defineAsset('tree', makeTree);
 defineAsset('campfire', makeCampfire);
 defineAsset('chicken-leg', makeChickenLeg);
 defineAsset('statue', makeStatue);
+defineAsset('dummy', makeDummy);
 defineAsset('rock', makeRock);
 defineAsset('money', makeMoney);
 defineAsset('stump', makeStump);

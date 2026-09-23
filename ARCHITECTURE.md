@@ -182,6 +182,12 @@ other.** No walking from A to B and back to A, and no room changing how another
 room behaves. A rare one-way hand-off into a specific room (the circus void
 drops you in the duck pens) is fine.
 
+**An item doesn't have to open anything.** A narrator reaction is a valid
+payoff on its own: in the booth, a duck at the mic, money on the chair and a
+basketball against the glass are just jokes; only the axe (cutting the mic
+cable) changes how the room plays. Most rooms want one real alternative and
+a few cheap reactions — don't design every item into a mechanic.
+
 - The new room's button is always at `(0,0,-2)`. `advance(buttonPos)` keeps the
   player's offset from `buttonPos`; **a bare `advance()` stands them clear** of
   the new button (don't pass the player's own position).

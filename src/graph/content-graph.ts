@@ -71,6 +71,8 @@ const nodes: GNode[] = [
     note: 'A growing hallway of doors that reshuffle. The last one is locked; the key is behind where you started.' },
   { id: 'lvl:circus', label: 'The Big Top', kind: 'level', keys: { exp: ['circus'] },
     note: 'Trampolines spiral up the inside of a tent to a unicycle, then a thin twisting walkway out.' },
+  { id: 'lvl:booth', label: 'The Booth', kind: 'level', keys: { exp: ['booth'] },
+    note: "The narrator's recording booth, and he has stepped out. His soundboard plays his lines; the dummy behind the glass obeys every one of them, literally." },
 
   // ── In-room gags ──
   { id: 'gag:another-button', label: 'Another Button', kind: 'gag', keys: { exp: ['another-button'] },
@@ -136,6 +138,17 @@ const nodes: GNode[] = [
   { id: 'mech:grown-wolf', label: 'The Grown Wolf', kind: 'mechanic',
     note: 'What the baby wolf becomes after ten ducks: the size of its mother, out of ducks, and looking at you. It used you exactly like you used them.' },
 
+  { id: 'mech:soundboard', label: 'The Soundboard', kind: 'mechanic',
+    note: 'Twelve of his lines, out of context. The dummy takes each one literally. Four of them, in the right order, get it out.' },
+  { id: 'mech:booth-mic', label: 'The Mic', kind: 'mechanic', keys: { target: ['booth-mic'] },
+    note: 'His microphone. Something that is not him could use it. It will not be allowed a line.' },
+  { id: 'mech:booth-chair', label: 'The Empty Chair', kind: 'mechanic', keys: { target: ['booth-chair'] },
+    note: 'His chair, pushed back. Leave him something on it and he notices.' },
+  { id: 'mech:booth-glass', label: 'The Glass', kind: 'mechanic', keys: { target: ['booth-glass'] },
+    note: 'Between you and the dummy. It flinches at a knock.' },
+  { id: 'mech:booth-cable', label: 'The Mic Cable', kind: 'mechanic', keys: { target: ['booth-cable'] },
+    note: 'Desk to wall. Cut it and the board goes dead — the ON AIR light is all you have left.' },
+
   // ── Reward path-ends ──
   { id: 'reward:walking-basket', label: 'The Walking Basket', kind: 'reward',
     note: 'Score 18+ at free throws and a two-legged basket waddles after you, ready to be fed shots anywhere.' },
@@ -147,6 +160,13 @@ const nodes: GNode[] = [
     note: 'Won atop the big top: a one-wheeled way to move — faster, and a menace to steer.' },
   { id: 'reward:golden-orb', label: 'The Golden Orb', kind: 'reward',
     note: "Behind the breeding-button puzzle's perfect run: a glowing orb on a plinth (a placeholder prize, for now)." },
+
+  { id: 'reward:booth-out', label: 'A Decent Narrator', kind: 'reward',
+    note: 'Get the dummy out of its door with nothing but his lines. He is not pleased. It is not a compliment.' },
+  { id: 'reward:booth-broken', label: 'The Stare', kind: 'reward',
+    note: 'Tell it nothing happened, often enough, and it stops doing anything but look at you.' },
+  { id: 'reward:booth-silent', label: 'The Silent Take', kind: 'reward',
+    note: 'Cable cut, cued by the light alone — and it does better without him.' },
 
   // ── Effects ──
   { id: 'fx:feathers', label: 'Feathers', kind: 'fx',
@@ -175,6 +195,11 @@ const edges: GEdge[] = [
   { from: 'lvl:doors', to: 'mech:door-lock', kind: 'enables' },
   { from: 'lvl:doors', to: 'mech:spike-trap', kind: 'enables' },
   { from: 'lvl:circus', to: 'mech:trampoline', kind: 'enables' },
+  { from: 'lvl:booth', to: 'mech:soundboard', kind: 'enables' },
+  { from: 'lvl:booth', to: 'mech:booth-mic', kind: 'enables' },
+  { from: 'lvl:booth', to: 'mech:booth-chair', kind: 'enables' },
+  { from: 'lvl:booth', to: 'mech:booth-glass', kind: 'enables' },
+  { from: 'lvl:booth', to: 'mech:booth-cable', kind: 'enables' },
   { from: 'lvl:ducks', to: 'mech:farm-pen', kind: 'enables' },
   { from: 'lvl:ducks', to: 'mech:saw-pen', kind: 'enables' },
   { from: 'lvl:ducks', to: 'mech:wolf-gate', kind: 'enables' },
@@ -190,6 +215,10 @@ const edges: GEdge[] = [
   { from: 'item:pickaxe', to: 'mech:stone-block', kind: 'combine', label: 'open' },
   { from: 'item:axe', to: 'mech:tunnel-plank', kind: 'combine', label: 'open' },
   { from: 'item:key', to: 'mech:door-lock', kind: 'combine', label: 'unlock' },
+  { from: 'item:duck', to: 'mech:booth-mic', kind: 'combine', label: 'a line of its own' },
+  { from: 'item:money', to: 'mech:booth-chair', kind: 'combine', label: 'a tip' },
+  { from: 'item:basketball', to: 'mech:booth-glass', kind: 'combine', label: 'knock' },
+  { from: 'item:axe', to: 'mech:booth-cable', kind: 'combine', label: 'cut' },
   { from: 'item:axe', to: 'mech:farm-pen', kind: 'combine', label: 'smash' },
   { from: 'item:axe', to: 'mech:saw-pen', kind: 'combine', label: 'smash' },
   { from: 'item:axe', to: 'mech:wolf-gate', kind: 'combine', label: 'smash' },
@@ -212,6 +241,9 @@ const edges: GEdge[] = [
   { from: 'lvl:ducks', to: 'item:money', kind: 'reward', label: 'mercy path' },
   { from: 'lvl:circus', to: 'reward:unicycle', kind: 'reward', label: 'reach the top' },
   { from: 'gag:another-button', to: 'reward:golden-orb', kind: 'reward', label: '10 in a row' },
+  { from: 'mech:soundboard', to: 'reward:booth-out', kind: 'reward', label: 'the right four lines' },
+  { from: 'mech:soundboard', to: 'reward:booth-broken', kind: 'reward', label: 'nothing, three times' },
+  { from: 'mech:booth-cable', to: 'reward:booth-silent', kind: 'reward', label: 'the light alone' },
   { from: 'reward:walking-basket', to: 'mech:scoring-hoop', kind: 'enables', label: 'carry it' },
 
   // Held cushions against a train.

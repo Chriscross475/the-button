@@ -33,6 +33,7 @@ const TEST_LEVELS: [string, string][] = [
   ['slingshot', 'SLINGSHOT'],
   ['basketball', 'HOOPS'],
   ['circus', 'CIRCUS'],
+  ['booth', 'BOOTH'],
 ];
 
 export function showMainMenu(opts: MainMenuOptions): void {

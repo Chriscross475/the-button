@@ -15,6 +15,7 @@ import { doorsCorridor } from './doors';
 import { slingshot } from './slingshot';
 import { basketball } from './basketball';
 import { circus } from './circus';
+import { booth } from './booth';
 
 export function registerAllExperiences(): void {
   // Levels (entered via the in-place reveal, each with its own resolution).
@@ -25,6 +26,7 @@ export function registerAllExperiences(): void {
   registerExperience(slingshot);
   registerExperience(basketball);
   registerExperience(circus);
+  registerExperience(booth);
   // In-room gags (trivial resolution — they just happen; press again).
   registerExperience(anotherButton);
   registerExperience(statue);
