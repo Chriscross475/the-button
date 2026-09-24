@@ -8,8 +8,8 @@ import { getInRangeInteractable } from '../interactables/system';
 // CARRY + COMBINE — the shared interaction framework, now DUAL-HANDED.
 //
 // The player has TWO hands, each shown as an arm and each able to carry its own
-// item. LEFT click / left-side touch drives the LEFT hand; RIGHT click /
-// right-side touch drives the RIGHT hand. Per hand: empty → grab what you look
+// item. LEFT click / the L touch button drives the LEFT hand; RIGHT click /
+// the R touch button drives the RIGHT hand. Per hand: empty → grab what you look
 // at; holding → tap (use, e.g. swing), hold-release (throw), or click-onto a
 // target (combine recipe). A bottom-of-screen HUD labels each hand's item.
 //
@@ -28,9 +28,8 @@ export interface Carryable {
   onTap?: () => void;
   /** Hold-and-release while held with no combine (e.g. throw). charge 0..1. */
   onThrow?: (charge: number) => void;
-  /** A mouse click throws it too (weakest throw); holding charges a further one,
-   *  shown by the charge bar under the crosshair. Touch keeps hold-to-throw, since
-   *  a tap there is also how you press a button. */
+  /** A click (mouse or touch hand button) throws it too (weakest throw); holding
+   *  charges a further one, shown by the charge bar under the crosshair. */
   clickThrows?: boolean;
   onGrab?: () => void;
   onRelease?: () => void;
@@ -113,6 +112,9 @@ export interface Carry {
   /** Play the empty-hand press (the hand jabs forward and back), if that hand
    *  is empty. */
   poke(side: 'left' | 'right'): void;
+  /** An on-screen hand button (touch) went down / up: that hand acts exactly
+   *  like its mouse button (crosshair grab, press, combine, hold-to-throw). */
+  hand(side: 'left' | 'right', down: boolean): void;
   /** Put an item directly into a hand (e.g. a recipe result). */
   putInHand(side: 'left' | 'right', c: Carryable): void;
   /** After a new level is built, re-install per-level hooks for items the player
@@ -143,7 +145,6 @@ interface Hand {
   item: Carryable | null;
   pressing: boolean;
   comboClick: boolean; // this press began aimed at a combine target
-  mouse: boolean; // this press came from a mouse
   poke: number; // seconds into the empty-hand press animation (−1 = idle)
   pressStart: number;
   arm: THREE.Object3D;
@@ -196,8 +197,8 @@ export function createCarry(
     return a;
   };
   const hands: Record<Side, Hand> = {
-    left: { item: null, pressing: false, comboClick: false, mouse: false, poke: -1, pressStart: 0, arm: makeArm('left') },
-    right: { item: null, pressing: false, comboClick: false, mouse: false, poke: -1, pressStart: 0, arm: makeArm('right') },
+    left: { item: null, pressing: false, comboClick: false, poke: -1, pressStart: 0, arm: makeArm('left') },
+    right: { item: null, pressing: false, comboClick: false, poke: -1, pressStart: 0, arm: makeArm('right') },
   };
 
   const label = (side: Side) => setHandItem(side, hands[side].item?.kind ?? null);
@@ -308,6 +309,11 @@ export function createCarry(
     clickIsCombo: (side) => hands[side].comboClick,
     poke: (side) => {
       if (!hands[side].item) hands[side].poke = 0;
+    },
+    hand: (side, down) => {
+      const p: Press = { button: side === 'right' ? 2 : 0 };
+      if (down) onDown(p);
+      else onUp(p);
     },
     removeTarget: (t) => {
       const i = targets.indexOf(t);
@@ -429,13 +435,12 @@ export function createCarry(
   };
 
   const grabNdc = new THREE.Vector2();
-  // ndc: where on screen to grab from. Desktop = crosshair centre; touch = the
-  // tap point, so tapping a duck (anywhere on screen) grabs THAT duck.
-  const tryGrab = (side: Side, ndc: THREE.Vector2 | null = null) => {
+  // Grab what the crosshair is on (mouse and touch hand buttons alike).
+  const tryGrab = (side: Side) => {
     const h = hands[side];
     if (h.item) return;
     ctx.camera.getWorldDirection(forward);
-    raycaster.setFromCamera(ndc ?? grabNdc.set(0, 0), ctx.camera);
+    raycaster.setFromCamera(grabNdc, ctx.camera);
     const grabbable = carryables.filter((c) => !heldInAnyHand(c));
     const objs = grabbable.map((c) => c.object);
     const hits = raycaster.intersectObjects(objs, true);
@@ -494,15 +499,11 @@ export function createCarry(
     label(side);
   };
 
-  // A press on either hand: the bits of a mouse or touch event the hands read.
+  // A press on either hand: a mouse button, or a touch hand button posing as one.
   interface Press {
-    pointerType: string;
     button: number;
-    clientX: number;
-    clientY: number;
   }
   const sideOf = (e: Press): Side => {
-    if (e.pointerType === 'touch') return e.clientX < window.innerWidth / 2 ? 'left' : 'right';
     return e.button === 2 ? 'right' : 'left';
   };
 
@@ -517,7 +518,7 @@ export function createCarry(
     if (active) {
       for (const side of ['left', 'right'] as Side[]) {
         const h = hands[side];
-        if (!h.pressing || !h.mouse || h.comboClick || !h.item?.clickThrows) continue;
+        if (!h.pressing || h.comboClick || !h.item?.clickThrows) continue;
         const elapsed = performance.now() - h.pressStart;
         if (elapsed >= TAP_MS) charge = Math.max(charge, chargeOf(elapsed));
       }
@@ -533,24 +534,18 @@ export function createCarry(
     if (!playing || ctx.isDead()) return;
     h.comboClick = !!h.item && !!findCombo(h.item);
     if (!h.item) {
-      // Touch: grab from the tapped point (tap the duck itself). Mouse: crosshair.
-      const ndc =
-        e.pointerType === 'touch'
-          ? grabNdc.set((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1))
-          : null;
-      tryGrab(side, ndc);
+      tryGrab(side);
       if (!h.item) h.poke = 0; // nothing grabbed: the hand presses instead
       h.pressing = false;
       return;
     }
-    // A mouse click on a button presses the button; the held item stays put
-    // unless it is aimed at something it combines with (then it's the item's).
-    if (e.pointerType === 'mouse' && getInRangeInteractable() && !h.comboClick) {
+    // A click on a button presses the button; the held item stays put unless it
+    // is aimed at something it combines with (then it's the item's).
+    if (getInRangeInteractable() && !h.comboClick) {
       h.pressing = false;
       return;
     }
     h.pressing = true;
-    h.mouse = e.pointerType === 'mouse';
     h.pressStart = performance.now();
   }
   function onUp(e: Press) {
@@ -568,11 +563,9 @@ export function createCarry(
       if (keep !== true && hands[side].item === item) releaseHand(side);
       return;
     }
-    // A quick tap is a press or a tool-swing, NEVER a throw. Otherwise tapping to
-    // press a button (mobile, where the same touch reaches the carry system) would
-    // fling a held reward — your money — out of your hand. Throwing needs a real
-    // hold-and-release (elapsed >= TAP_MS).
-    const clickThrow = !!item.clickThrows && h.mouse;
+    // A quick tap is a tool-swing, NEVER a throw — except a click-throw item.
+    // Otherwise throwing needs a real hold-and-release (elapsed >= TAP_MS).
+    const clickThrow = !!item.clickThrows;
     if (elapsed < TAP_MS && !clickThrow) {
       if (item.onTap) item.onTap(); // e.g. an axe swing; otherwise the item just stays put
       return;
@@ -600,21 +593,17 @@ export function createCarry(
     // Mouse: mousedown/mouseup fire once PER BUTTON, so both hands work at the
     // same time. (Pointer events fire only for the first button down and the
     // last one up — a second button arrives as a pointermove "chord" — so the
-    // other hand never heard it.) Touch keeps pointer events; the compatibility
-    // mouse events a touch synthesises right after are ignored.
+    // other hand never heard it.) Touch drives the hands through the L / R
+    // buttons (carry.hand), never the canvas: those fingers walk and look. The
+    // compatibility mouse events a touch synthesises right after are ignored.
     let lastTouch = -Infinity;
-    const asMouse = (e: MouseEvent): Press => ({ pointerType: 'mouse', button: e.button, clientX: e.clientX, clientY: e.clientY });
+    const asMouse = (e: MouseEvent): Press => ({ button: e.button });
     const fromTouch = () => performance.now() - lastTouch < 700;
-    canvas.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'mouse') return;
+    const markTouch = () => {
       lastTouch = performance.now();
-      onDown(e);
-    });
-    canvas.addEventListener('pointerup', (e) => {
-      if (e.pointerType === 'mouse') return;
-      lastTouch = performance.now();
-      onUp(e);
-    });
+    };
+    canvas.addEventListener('touchstart', markTouch, { passive: true });
+    canvas.addEventListener('touchend', markTouch, { passive: true });
     canvas.addEventListener('mousedown', (e) => {
       if (!fromTouch()) onDown(asMouse(e));
     });

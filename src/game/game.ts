@@ -12,6 +12,8 @@ import {
   setWheel,
   floorYAt,
   setEyeHeight,
+  setJump,
+  isJumpEnabled,
 } from '../controls/player-camera';
 import { createTouchInput } from '../controls/input';
 import {
@@ -22,6 +24,7 @@ import {
 } from '../interactables/system';
 import { findTapTarget } from '../controls/tap-target';
 import { isDesktopLike } from '../controls/platform';
+import { setJumpButtonVisible } from '../controls/hand-buttons';
 import { narrate } from '../ui/narrator';
 import { createCarry, type Carry } from './combine';
 import { ensureAudio, thud, sparkle } from '../audio/sfx';
@@ -38,6 +41,7 @@ import type { Experience } from '../experiences/registry';
 import { pick } from '../experiences/util';
 import { pickExperience, getExperience, setLastExperience } from '../experiences/registry';
 import { vo } from '../audio/vo-shared';
+import { FONT_SIGN } from '../ui/fonts';
 
 // Launch (flight) tuning.
 const FLIGHT_GRAVITY = 16;
@@ -69,6 +73,9 @@ function segmentBoxEntry(a: THREE.Vector3, b: THREE.Vector3, w: FlightWall): num
 }
 
 const DEATH_INPUT_LOCK_MS = 1500;
+// A hand-button release this soon after its press counts as a click (the
+// desktop scheme's tap window).
+const HAND_TAP_MS = 220;
 
 const DEATH_LINES = vo([
   'You died. The button does not mourn.',
@@ -242,7 +249,12 @@ export class Game {
         if (this.current) this.current.flightWalls = walls;
       },
       isAirborne: () => this.airborne,
+      moveInput: () => ({ x: this.input.moveX, y: this.input.moveY }),
       isDead: () => this.mode === 'dead',
+      setJump: (opts) => {
+        setJump(opts);
+        setJumpButtonVisible(opts !== null);
+      },
     });
 
     // The single global carry system. It gets a live view of the active level's
@@ -252,6 +264,8 @@ export class Game {
     this.input = createTouchInput(canvas, {
       onInteract: (mouseButton) => this.onInteract(mouseButton),
       onTap: (x, y, canPress) => this.onTap(x, y, canPress),
+      onHand: (side, down) => this.onHand(side, down),
+      jumpEnabled: () => isJumpEnabled(),
       onFirstInput: () => this.onFirstInput(),
     });
 
@@ -359,6 +373,8 @@ export class Game {
     clearUpdaters();
     this.controlMode = null; // never carry an operating mode across levels
     setEyeHeight(null); // nor a lowered eye (e.g. still sitting in a chair)
+    setJump(null); // nor jumping (a jump level turns it on itself)
+    setJumpButtonVisible(false);
     // The unicycle/wheel is a KEPT reward — it persists across levels now (no
     // clear here); updateWheelVisual keeps it under the player wherever they go.
     this.carry.clearLevel(); // drop the leaving level's carryables; persistent items carry over
@@ -581,6 +597,20 @@ export class Game {
     pressUse();
   }
 
+  // A touch hand button: the twin of a mouse button. Down/up drive the carry
+  // system; a quick release also presses what the crosshair is on (the mouse's
+  // click), with the right hand for R. On the death screen that release restarts.
+  private handDownAt = { left: 0, right: 0 };
+  private onHand(side: 'left' | 'right', down: boolean): void {
+    if (down) {
+      this.handDownAt[side] = performance.now();
+      this.carry.hand(side, true);
+      return;
+    }
+    this.carry.hand(side, false);
+    if (performance.now() - this.handDownAt[side] < HAND_TAP_MS) this.onInteract(side === 'right' ? 2 : 0);
+  }
+
   private onTap(x: number, y: number, canPress: boolean): void {
     if (!this.started || this.paused) return;
     if (this.mode === 'dead') {
@@ -754,7 +784,7 @@ export class Game {
     if (!ud.canvas || !ud.ctx || !ud.tex) return;
     const { canvas, ctx } = ud;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = 'bold 46px system-ui, sans-serif';
+    ctx.font = `bold 46px ${FONT_SIGN}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const cx = canvas.width / 2;

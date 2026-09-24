@@ -95,7 +95,7 @@ export function spawnDuck(ctx: GameContext, x: number, z: number, opts: DuckOpts
     if (!duck.alive) return;
     duck.alive = false;
     spawnFeathers(ctx.levelRoot, object.position.clone());
-    discover('fx:feathers');
+    discover('mech:feathers');
     ctx.removeCarryable(carry);
     if (target) { ctx.removeTarget(target); chop.delete(target); }
     object.parent?.remove(object);

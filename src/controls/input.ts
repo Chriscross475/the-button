@@ -36,7 +36,7 @@ export function createTouchInput(
   options: InputOptions = {},
 ): InputState {
   const state: InputState = {
-    moveX: 0, moveY: 0, lookDx: 0, lookDy: 0,
+    moveX: 0, moveY: 0, lookDx: 0, lookDy: 0, jump: false,
     tickInput: () => {},
   };
 

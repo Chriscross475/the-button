@@ -30,6 +30,7 @@ const N_LOOPS = vo([
   'I have done this tutorial eleven thousand times. The secret is to stop listening. To it. Not to me.',
   'It told you not to press the button. Think about who you are. Think about the name of the game.',
 ]);
+const N_PREMIUM = vo('Oh. A premium member. Premium members do not do tutorials. Premium members do not do anything. Go on through.');
 const N_DONE = vo('There it is. The one thing it told you not to do. That was the entire tutorial. Congratulations. On nothing.');
 
 // The tutorial's cards, per lap (the last lap repeats). Not spoken — read.
@@ -130,6 +131,20 @@ export function revealTutorial(ctx: GameContext): void {
   // The button: the only way out is pressing it when you've been told not to.
   ctx.setRoomButton(() => {
     if (done) return;
+    // Premium members skip the whole thing, at any lesson.
+    if (ctx.isHolding('premium-card')) {
+      done = true;
+      ring.visible = false;
+      card.glitch();
+      glitchSound();
+      discover('reward:tutorial-premium');
+      ctx.narrate(N_PREMIUM, 6500, { priority: true });
+      ctx.after(2600, () => {
+        card.el.remove();
+        ctx.advance(BUTTON.clone());
+      });
+      return;
+    }
     if (lesson === 'button' && praising <= 0) {
       done = true;
       ring.visible = false;

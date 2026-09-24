@@ -7,6 +7,9 @@ import { createAsset } from '../assets';
 import { spawnDuck } from '../objects/duck';
 import { spawnAxe } from '../objects/axe';
 import { buildGrandmaCottage } from './grandma-cottage';
+import { vo } from '../audio/vo-shared';
+
+const AXE_HINT = vo('Somewhere in this forest there is an axe in a stump. Every forest has one. Look the other way from here.');
 
 // A LEVEL — the forest. The walls topple and you're on a wide outdoor plain
 // dotted with trees, under a bright sky. Resolution: find the clearing with the
@@ -150,7 +153,7 @@ export function revealForest(ctx: GameContext): void {
     const x = (Math.random() * 2 - 1) * HALF;
     const z = (Math.random() * 2 - 1) * HALF;
     if (Math.hypot(x, z) < 6) continue; // spawn clearing
-    if (Math.hypot(x - EXIT.x, z - EXIT.z) < 5) continue; // exit clearing
+    if (Math.hypot(x - EXIT.x, z - EXIT.z) < 7.5) continue; // exit clearing: the whole cabin (8×9) + its doorstep
     if (Math.hypot(x - stumpPos.x, z - stumpPos.z) < 2.5) continue; // axe clearing
     if (Math.hypot(x - COTTAGE.x, z - COTTAGE.z) < 7) continue; // grandma's garden
     mkTree(x, z);
@@ -318,6 +321,7 @@ export function revealForest(ctx: GameContext): void {
     if (!hintedDoor && Math.hypot(playerP.x - doorX, playerP.z - doorZ) < 3.6) {
       hintedDoor = true;
       ctx.narrate('Barred. A plank across the doors. It will not come off by hand.', 5000, { priority: true });
+      if (!ctx.isHolding('axe')) ctx.narrate(AXE_HINT, 6000); // queued behind the barred line
     }
     return false;
   });
@@ -328,8 +332,10 @@ export function revealForest(ctx: GameContext): void {
   // Sky cross-fade white → daylight blue.
   const sky = new THREE.Color(0x9ec9e8);
   const startBg = (ctx.scene.background as THREE.Color)?.clone() ?? new THREE.Color(0xf4f4f2);
-  if (!ctx.scene.fog) ctx.scene.fog = new THREE.Fog(0x9ec9e8, 34, 92);
-  const fog = ctx.scene.fog as THREE.Fog;
+  // Set outright: the white room's fog (9–34 m) is still on the scene and would
+  // swallow the painted horizon and the cabin.
+  const fog = new THREE.Fog(0x9ec9e8, 34, 92);
+  ctx.scene.fog = fog;
   let tb = 0;
   addUpdater((dt) => {
     tb += dt;

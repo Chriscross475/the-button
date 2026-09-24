@@ -11,6 +11,9 @@ export interface InputState {
    *  consumes these and resets them to 0. */
   lookDx: number;
   lookDy: number;
+  /** A jump was requested (Space / the touch JUMP button); the walker consumes
+   *  it each frame. Only acted on in levels that enable jumping. */
+  jump?: boolean;
   /** Per-frame hook. Schemes register tick callbacks here for continuous
    *  behaviour (WASD polling, hybrid-look). */
   tickInput: (dt: number) => void;
@@ -42,6 +45,12 @@ export interface InputOptions {
    *  (E / Space, or a pointer-locked click — `mouseButton` says which). Means
    *  "use the currently in-range interactable". */
   onInteract?: (mouseButton?: number) => void;
+  /** An on-screen hand button (touch) went down or up — the touch twin of the
+   *  left / right mouse button. */
+  onHand?: (side: 'left' | 'right', down: boolean) => void;
+  /** True while the current level has jumping on: then Space jumps instead of
+   *  interacting (E still interacts). */
+  jumpEnabled?: () => boolean;
   /** Fired on the very first input of any kind — used to resume the audio
    *  context (needs a user gesture) and dismiss the first-run hint. */
   onFirstInput?: () => void;

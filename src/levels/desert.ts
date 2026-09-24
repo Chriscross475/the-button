@@ -9,8 +9,9 @@ import { createAsset, makeRng, trainStrike } from '../assets';
 import { vo } from '../audio/vo-shared';
 import type { Carryable } from '../game/combine';
 import { registerInteractable } from '../interactables/system';
-import { discover } from '../graph/progress';
+import { discover, isDiscovered } from '../graph/progress';
 import { spawnKey } from '../objects/key';
+import { FONT_DISPLAY } from '../ui/fonts';
 
 // THE DESERT — the room opens onto a desert. A road runs from where you stand,
 // over a railway at a level crossing, to the exit cabin on the far side:
@@ -46,9 +47,11 @@ const CROSS = new THREE.Vector3(0, 0, -26);
 const NO_EYE_CONTACT = vo('No eye contact. Exactly as I said. I never said it would help.');
 const NEVER_LOOKED = vo('You never saw it coming. In fairness, you never looked.');
 // The decoy lands: the window is open.
-// The dummy only turns up once the train has killed you (this session): the
-// first death teaches the rule, and then there's something to use it with.
-let runOverOnce = false;
+// The dummy only turns up once the train has killed you: the first death
+// teaches the rule, and then there's something to use it with. Remembered with
+// the saved progress (so it survives a reload, and the map's Reset clears it):
+// a flag id, not a map node.
+const RUN_OVER = 'flag:desert-run-over';
 let dummyAnnounced = false;
 let saidRedKey = false;
 const RED_KEY = vo('A red key, behind the exit, where nobody looks. You looked. Somewhere, a red lock is waiting.');
@@ -171,7 +174,7 @@ export function revealDesert(ctx: GameContext): void {
       ctx.narrate(RED_KEY, 4500, { priority: true });
     },
   });
-  const dummy = runOverOnce ? spawnDummy(ctx) : null;
+  const dummy = isDiscovered(RUN_OVER) ? spawnDummy(ctx) : null;
   buildWaitButton(ctx);
 
   // Something (not you) lying on the rails: the dummy at rest, or a duck on the
@@ -274,7 +277,7 @@ export function revealDesert(ctx: GameContext): void {
         hit.copy(onLine(trainS - CAR_GAP * i));
         if (trainStrike(ctx, hit, knock)) {
           if (ctx.isDead()) {
-            runOverOnce = true;
+            discover(RUN_OVER);
             onRunOver();
           }
           break;
@@ -411,9 +414,19 @@ function buildCrossingSide(ctx: GameContext, side: number): { update: (dt: numbe
 
   let angle = Math.PI / 2; // start raised
   let flashT = 0;
+  // The boom keeps people OUT of the boxed crossing, never in it: while you're in
+  // this side's half of the box (between the boom line and the rails, or on the
+  // boom line itself), this boom stays up so you can always walk back out. A
+  // boom dropping onto you would wedge you inside its obstacles.
+  const player = ctx.playerPos();
+  // (0.55 < the 0.6 a boom stops you at, so pressing against it from outside
+  // never counts as standing on its line.)
+  const inMyHalf = () =>
+    Math.abs(player.x) < ON_ROAD + 0.7 &&
+    (side > 0 ? player.z > CROSS.z && player.z < z + 0.55 : player.z < CROSS.z && player.z > z - 0.55);
   return {
     update(dt, closed) {
-      const goal = closed ? 0 : Math.PI / 2;
+      const goal = closed && !inMyHalf() ? 0 : Math.PI / 2;
       angle += THREE.MathUtils.clamp(goal - angle, -1.4 * dt, 1.4 * dt);
       pivot.rotation.z = -side * angle; // swings up away from the road
       const down = angle < 0.35;
@@ -768,7 +781,7 @@ function buildWaitButton(ctx: GameContext): void {
     g.fillStyle = '#16140f';
     g.fillRect(0, 0, 128, 64);
     g.fillStyle = lit ? '#ffb22e' : '#3a2f1a';
-    g.font = 'bold 40px monospace';
+    g.font = `bold 40px ${FONT_DISPLAY}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText('WAIT', 64, 34);

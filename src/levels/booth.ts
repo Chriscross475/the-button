@@ -12,6 +12,8 @@ import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
 import { buildExitRoom } from './exit-room';
 import { CONFIG } from '../config';
+import { spawnScript, setScriptHints } from '../objects/script';
+import { FONT_DISPLAY, FONT_SIGN, FONT_VOICE } from '../ui/fonts';
 
 // THE BOOTH — you become the narrator. The room turns into a recording booth;
 // through the glass is a copy of the white room with a dummy in it (the statue,
@@ -58,6 +60,20 @@ const END_SILENT = vo('You cut my cable. And it worked. It performs better witho
 const DUCK_MIC = vo('No. Absolutely not. It does not get a line. It has not earned a line.');
 const MONEY_CHAIR = vo('Is this for me? This is for me. I will allow it. Nothing is different. But I will allow it.');
 const GLASS_TAP = vo('Please do not tap on the glass. It frightens him.');
+// The second puzzle: his warm-up. A setlist card on the desk says ART, HERO,
+// CELEBRATE; play those three, in that order, and his locker springs open —
+// his script is inside.
+const WARMUP = ['art', 'hero', 'party'] as const;
+const LOCKER_OPEN = vo('Take three. That is my warm-up. How do you know my warm-up. Do not open my locker.');
+const SCRIPT_TAKEN = vo('That is my script. Put it back. Put it. Back. You are not going to put it back.');
+const IDLE_BOARD = vo('The soundboard. Every key plays one of my lines, and he does exactly what it says. Exactly. Pick a key and press it.');
+const ORDER_HINT = vo('He takes everything literally. He cannot unlock a door without the key, and he cannot use a door he is not standing at. In that order.');
+const SETLIST_HINT = vo('Somebody left a setlist on my desk. Do not read it. It is private. It is also three words long.');
+const BOOTH_NOTES = vo([
+  'Page one. The booth. He is supposed to walk out of his door: KEY, then OUT THE BACK, then KEY TURNS, then WAY IS OPEN.',
+  'Page two. If all else fails, tell him nothing happened. Three times. It breaks him. It breaks everyone.',
+  'Page three. Do not let anyone near the mic cable. He does better without me. Nobody is to know that.',
+]);
 
 type Cue =
   | 'button' | 'key' | 'door' | 'unlock' | 'leave' | 'fall'
@@ -193,7 +209,7 @@ export function revealBooth(ctx: GameContext): void {
     c.fillStyle = '#0b0c0e';
     c.fillRect(0, 0, 512, 96);
     c.fillStyle = color;
-    c.font = 'bold 54px monospace';
+    c.font = `bold 54px ${FONT_DISPLAY}`;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.fillText(text, 256, 50);
@@ -576,6 +592,12 @@ export function revealBooth(ctx: GameContext): void {
       }
       const [cue, , line, delay] = BOARD[sel];
       discover('mech:soundboard');
+      played.push(cue);
+      if (played.length > WARMUP.length) played.shift();
+      if (!lockerOpen && WARMUP.every((c, i) => played[i] === c)) ctx.after(delay, openLocker);
+      boardPlays++;
+      if (boardPlays === 7 && !lockerOpen) ctx.narrate(SETLIST_HINT, 5000);
+      if (boardPlays === 12 && !resolved) ctx.narrate(ORDER_HINT, 6000);
       setOnAir(true);
       speaking = true; // locked until the dummy has done its thing
       ctx.narrate(line, delay + 2600, { priority: true });
@@ -587,6 +609,110 @@ export function revealBooth(ctx: GameContext): void {
     },
   };
   registerInteractable(boardUse);
+  // Never touched the board: say what it is for, once.
+  let idleT = 0;
+  addUpdater((dt) => {
+    if (resolved || boardPlays > 0 || silent) return true;
+    idleT += dt;
+    if (idleT < 25) return false;
+    ctx.narrate(IDLE_BOARD, 5500);
+    return true;
+  });
+
+  // ── The second puzzle: the warm-up, the setlist, his locker, his script ──
+  const played: Cue[] = [];
+  let boardPlays = 0;
+  let lockerOpen = false;
+  setScriptHints(BOOTH_NOTES);
+  // The setlist: a little tent card propped on the desk, left of the board.
+  const setCv = document.createElement('canvas');
+  setCv.width = 256;
+  setCv.height = 200;
+  const sc = setCv.getContext('2d')!;
+  sc.fillStyle = '#fff27a';
+  sc.fillRect(0, 0, 256, 200);
+  sc.fillStyle = '#2a2622';
+  sc.textAlign = 'center';
+  sc.textBaseline = 'middle';
+  const fitLine = (t: string, style: string, size: number, y: number) => {
+    let px = size;
+    do sc.font = `${style} ${px}px ${FONT_VOICE}`;
+    while (sc.measureText(t).width > 230 && --px > 8);
+    sc.fillText(t, 128, y);
+  };
+  fitLine('WARM-UP (take 3)', 'bold', 26, 30);
+  fitLine('1. ART', '', 30, 80);
+  fitLine('2. HERO', '', 30, 118);
+  fitLine('3. CELEBRATE', '', 30, 156);
+  fitLine('— never skip it —', 'italic', 18, 188);
+  const card = new THREE.Group();
+  card.position.set(-2.15, 0.84, DESK_Z + 0.38); // left of the board, clear of it
+  card.rotation.y = 0.5;
+  root.add(card);
+  const cardBack = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.25, 0.012), matte(0xc9b84a, 0.8));
+  cardBack.position.set(0, 0.125, 0);
+  cardBack.rotation.x = -0.35;
+  card.add(cardBack);
+  const cardFace = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.234), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(setCv) }));
+  cardFace.position.set(0, 0.125 + 0.004, 0.009); // in front of its backing, tilted with it
+  cardFace.rotation.x = -0.35;
+  card.add(cardFace);
+  // His locker, against the right wall behind you.
+  const LOCKER = new THREE.Vector3(w / 2 - 0.45, 0, 1.6);
+  const lockerMat = matte(0x5a6470, 0.5);
+  // A hollow body (back 0.1 off the wall face), with a shelf for the script.
+  box(0.04, 1.9, 0.6, LOCKER.x + 0.23, 0.95, LOCKER.z, lockerMat); // back
+  for (const s of [-1, 1]) box(0.5, 1.9, 0.03, LOCKER.x, 0.95, LOCKER.z + s * 0.285, lockerMat); // sides
+  box(0.5, 0.03, 0.6, LOCKER.x, 1.885, LOCKER.z, lockerMat); // top
+  box(0.5, 0.03, 0.6, LOCKER.x, 0.015, LOCKER.z, lockerMat); // bottom
+  box(0.46, 0.02, 0.54, LOCKER.x, 1.1, LOCKER.z, lockerMat); // shelf
+  const lockerHinge = new THREE.Group();
+  lockerHinge.position.set(LOCKER.x - 0.26, 0, LOCKER.z + 0.3); // front-left edge, facing −X into the booth
+  root.add(lockerHinge);
+  const lockerDoor = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.86, 0.58), matte(0x6e7884, 0.45));
+  lockerDoor.position.set(0, 0.95, -0.29);
+  lockerHinge.add(lockerDoor);
+  const nameCv = document.createElement('canvas');
+  nameCv.width = 256;
+  nameCv.height = 64;
+  const nc = nameCv.getContext('2d')!;
+  nc.fillStyle = '#f2f2ee';
+  nc.fillRect(0, 0, 256, 64);
+  nc.fillStyle = '#1a1a1a';
+  nc.textAlign = 'center';
+  nc.textBaseline = 'middle';
+  let npx = 30;
+  do nc.font = `bold ${npx}px ${FONT_SIGN}`;
+  while (nc.measureText('NARRATOR — PRIVATE').width > 236 && --npx > 8);
+  nc.fillText('NARRATOR — PRIVATE', 128, 34);
+  const nameTag = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(nameCv) }));
+  nameTag.rotation.y = -Math.PI / 2; // faces −X
+  nameTag.position.set(-0.02, 1.6, -0.29);
+  lockerHinge.add(nameTag);
+  ctx.addObstacle({ x: LOCKER.x, z: LOCKER.z, radius: 0.4 });
+  const openLocker = () => {
+    if (lockerOpen) return;
+    lockerOpen = true;
+    pop();
+    thud();
+    let t = 0;
+    addUpdater((dt) => {
+      t = Math.min(1, t + dt / 0.6);
+      lockerHinge.rotation.y = 1.9 * (1 - Math.pow(1 - t, 3)); // swings out, toward the booth (−X)
+      return t >= 1;
+    });
+    ctx.narrate(LOCKER_OPEN, 5500); // queued: after his warm-up line finishes
+    // His script, on the locker's shelf. Take it; it leaves with you.
+    let taken = false;
+    spawnScript(ctx, new THREE.Vector3(LOCKER.x - 0.02, 1.13, LOCKER.z), {
+      onGrab: () => {
+        if (taken) return;
+        taken = true;
+        ctx.narrate(SCRIPT_TAKEN, 5000, { priority: true });
+      },
+    });
+  };
+
   addUpdater(() => {
     const next = aimedKey();
     if (next !== sel) {
@@ -645,7 +771,7 @@ function textTexture(text: string, fg: string, bg: string, w: number, h: number)
     c.fillStyle = bg;
     c.fillRect(0, 0, w, h);
     c.fillStyle = fg;
-    c.font = `bold ${Math.round(h * 0.62)}px sans-serif`;
+    c.font = `bold ${Math.round(h * 0.62)}px ${FONT_SIGN}`;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     c.fillText(text, w / 2, h / 2 + 2);
@@ -661,7 +787,7 @@ function boardLabelTexture(): THREE.CanvasTexture {
   const c = canvas.getContext('2d');
   if (c) {
     c.fillStyle = '#e8e2d0';
-    c.font = 'bold 22px monospace';
+    c.font = `bold 22px ${FONT_DISPLAY}`;
     c.textAlign = 'center';
     BOARD.forEach(([, label], i) => {
       const x = ((i % 6) + 0.5) * (1024 / 6);

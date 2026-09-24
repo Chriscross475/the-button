@@ -1,5 +1,6 @@
 import { toggleTts, isTtsEnabled } from '../audio/tts';
 import { click } from '../audio/sfx';
+import { FONT_SIGN, FONT_VOICE } from './fonts';
 
 // The main menu. A clean, bright, deadpan title card — the inverse of the dark
 // dungeon the engine came from. Full-screen vanilla-DOM overlay (same shape as
@@ -46,6 +47,26 @@ const TEST_LEVELS: [string, string][] = [
   ['queue', 'QUEUE'],
   ['gift-shop', 'SHOP'],
   ['lost-found', 'LOST+FOUND'],
+  ['game-show', 'THE BUTTON'],
+  ['vending', 'VENDING'],
+  ['self-checkout', 'CHECKOUT'],
+  ['escape-room', 'ESCAPE'],
+  ['trolley', 'TROLLEY'],
+  ['marshmallow', 'MARSHMALLOW'],
+  ['cave', 'CAVE'],
+  ['courtroom', 'COURT'],
+  ['sisyphus', 'SISYPHUS'],
+  ['schrodinger', 'BOX'],
+  ['only-up', 'ONLY UP'],
+  ['you-are-button', 'YOU=BUTTON'],
+  ['time-loop', 'LOOP'],
+  ['microverse', 'MICRO'],
+  ['infomercial', 'INFOMERCIAL'],
+  ['multiverse', 'MULTIVERSE'],
+  ['wedding', 'WEDDING'],
+  ['porta-loo', 'PORTA-LOO'],
+  ['night-shift', 'NIGHT SHIFT'],
+  ['family-dinner', 'DINNER'],
 ];
 
 export function showMainMenu(opts: MainMenuOptions): void {
@@ -74,7 +95,7 @@ export function showMainMenu(opts: MainMenuOptions): void {
     background:
       'radial-gradient(ellipse at center, rgba(248,248,246,0.72) 0%, rgba(232,232,229,0.9) 75%)',
     backdropFilter: 'blur(2px)',
-    fontFamily: 'Georgia, "Times New Roman", serif',
+    fontFamily: FONT_VOICE,
     color: '#1a1a1a',
     pointerEvents: 'auto',
     opacity: '0',
@@ -129,7 +150,7 @@ export function showMainMenu(opts: MainMenuOptions): void {
     gap: '6px',
     alignItems: 'center',
     marginTop: '22px',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontFamily: FONT_SIGN,
   } as Partial<CSSStyleDeclaration>);
 
   const help = document.createElement('div');
@@ -139,7 +160,7 @@ export function showMainMenu(opts: MainMenuOptions): void {
     bottom: '8%',
     left: '50%',
     transform: 'translateX(-50%)',
-    fontFamily: 'system-ui, sans-serif',
+    fontFamily: FONT_SIGN,
     fontSize: '12px',
     letterSpacing: '0.12em',
     textTransform: 'uppercase',
@@ -208,7 +229,7 @@ export function showMainMenu(opts: MainMenuOptions): void {
       flexWrap: 'wrap',
       justifyContent: 'center',
       marginTop: '16px',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontFamily: FONT_SIGN,
     } as Partial<CSSStyleDeclaration>);
     const lbl = document.createElement('span');
     lbl.textContent = 'test:';
@@ -305,7 +326,7 @@ function makePill(label: string): HTMLButtonElement {
     border: '1px solid rgba(20,20,20,0.5)',
     background: 'rgba(255,255,255,0.55)',
     color: '#141414',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontFamily: FONT_SIGN,
     fontSize: '20px',
     fontWeight: '700',
     letterSpacing: '0.26em',

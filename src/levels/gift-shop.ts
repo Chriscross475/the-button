@@ -9,7 +9,12 @@ import { tone, noise, ensureAudio, pop, click, thud } from '../audio/sfx';
 import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
 import { hideRoomShell } from './scaffold';
+import { spawnCoin } from '../objects/coin';
+import { spawnMoney } from '../objects/money';
+import { makeMiniButton } from '../objects/original-button';
+import { setScriptHints } from '../objects/script';
 import { buildExitRoom } from './exit-room';
+import { FONT_VOICE } from '../ui/fonts';
 
 // THE GIFT SHOP — exit through the gift shop. The white room becomes a shop
 // selling merchandise of the game itself (duck plushies, "I pressed it" mugs, a
@@ -19,6 +24,10 @@ import { buildExitRoom } from './exit-room';
 //   • Pay: bring the money in (kind 'money') and hand it over at the till — or
 //     fish a coin out of the wishing fountain and pay with that. Paid → the
 //     turnstile turns for any souvenir you carry.
+//   • (A premium card at the till: member price, which is nothing. A receipt
+//     from the self-checkout at the till: refunded, as a pile of money.)
+//   • The Button (Replica) on the counter is a souvenir too — the museum's
+//     guard will not know the difference.
 //   • Or shoplift: carry an unpaid souvenir to the turnstile while the guard's
 //     back is turned (he patrols the aisle; his gaze is the pale cone). Seen →
 //     he takes it back, re-shelves it, and walks you to the entrance.
@@ -51,16 +60,24 @@ const ALREADY = vo('It is paid for. Go. Before he thinks of a warranty.');
 const CAUGHT = vo('Caught. He takes it back, puts it on the shelf, and walks you to the entrance. Very politely. Very firmly.');
 const SMUGGLED = vo('Nobody saw. The turnstile does not ask questions. Enjoy your stolen merchandise.');
 const THANKS = vo('Thank you for shopping. Please come again. Please do not.');
+const MEMBER = vo('Button Premium. Member price: nothing. The clerk does not know why either. Take anything.');
+const REFUND = vo('A receipt, for things you did not buy here. The clerk refunds it anyway. In cash. Nobody checks. Nobody ever checks.');
+const REPLICA = vo('The Button. A replica. It looks exactly like the real one. Some people would find that useful. Some people with a museum to visit.');
+const HINTS = vo([
+  'The turnstile wants a customer. Pick a souvenir, then pay at the till. Money, or a coin from the fountain.',
+  'No money? There are coins in the fountain. Or there is the guard, who does not look at the turnstile all the time.',
+  'Wait for the guard to walk up the aisle and look at the mugs. Then walk out with whatever you are holding. I did not say that.',
+]);
 
 // Paying is global (combines are global recipes); the live shop wires the hook.
-let hooks: { pay: (what: 'money' | 'coin') => void; souvenirAtTill: () => void } | null = null;
+let hooks: { pay: (what: 'money' | 'coin' | 'member') => void; souvenirAtTill: () => void; refund: () => void } | null = null;
 defineCombine('money', 'shop-till', (held, _t, env) => {
   if (!hooks) return true;
   env.carry.removeCarryable(held);
   held.object.parent?.remove(held.object);
   hooks.pay('money');
 });
-defineCombine('shop-coin', 'shop-till', (held, _t, env) => {
+defineCombine('coin', 'shop-till', (held, _t, env) => {
   if (!hooks) return true;
   env.carry.removeCarryable(held);
   held.object.parent?.remove(held.object);
@@ -70,10 +87,27 @@ defineCombine('souvenir', 'shop-till', () => {
   hooks?.souvenirAtTill();
   return true; // keep it
 });
+defineCombine('replica-button', 'shop-till', () => {
+  hooks?.souvenirAtTill();
+  return true;
+});
+// The premium card: shown, not spent.
+defineCombine('premium-card', 'shop-till', () => {
+  hooks?.pay('member');
+  return true;
+});
+// A receipt from the self-checkout: refunded here, in cash.
+defineCombine('receipt', 'shop-till', (held, _t, env) => {
+  if (!hooks) return true;
+  env.carry.removeCarryable(held);
+  held.object.parent?.remove(held.object);
+  hooks.refund();
+});
 
 /** Headless-test access to the live shop's state and actions. */
 export const giftShopTest: {
-  pay?: (what: 'money' | 'coin') => void;
+  pay?: (what: 'money' | 'coin' | 'member') => void;
+  refund?: () => void;
   state?: () => { paid: boolean; open: boolean; guardSees: (p: THREE.Vector3) => boolean };
 } = {};
 
@@ -116,6 +150,9 @@ export function revealGiftShop(ctx: GameContext): void {
 
   // ── Merchandise: souvenirs on the side shelves ──
   interface Souvenir { carry: Carryable; home: THREE.Vector3; held: boolean }
+  // Merchandise kinds the turnstile counts as "a purchase" in your hand.
+  const GOODS = ['souvenir', 'replica-button'];
+  const holdingGoods = () => GOODS.some((k) => ctx.isHolding(k));
   const souvenirs: Souvenir[] = [];
   let saidPick = false;
   const stock: [string, string, () => THREE.Object3D][] = [
@@ -167,20 +204,45 @@ export function revealGiftShop(ctx: GameContext): void {
     souvenirs.push(s);
   });
 
+  // ── The Button (Replica), on the till counter: an impulse buy ──
+  {
+    const home = new THREE.Vector3(TILL.x - 0.55, 1.06, TILL.z + 0.18);
+    const obj = makeMiniButton();
+    obj.position.copy(home);
+    root.add(obj);
+    const tag = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.14), new THREE.MeshBasicMaterial({ map: tagTexture('The Button (Replica) · £5') }));
+    tag.position.set(TILL.x - 0.55, 0.85, TILL.z + 0.37); // on the counter's front, just proud of it
+    root.add(tag);
+    let saidReplica = false;
+    const s: Souvenir = { carry: null as unknown as Carryable, home, held: false };
+    s.carry = {
+      kind: 'replica-button',
+      object: obj,
+      heldDist: 0.5,
+      heldDrop: 0.26,
+      persistent: true,
+      heldUpdate: (_dt, o) => o.rotation.set(0.5, 0, 0), // dome up, toward you
+      onGrab: () => {
+        s.held = true;
+        pop();
+        if (!saidReplica) {
+          saidReplica = true;
+          ctx.narrate(REPLICA, 6000, { priority: true });
+        }
+      },
+      onRelease: () => {
+        s.held = false;
+      },
+    };
+    ctx.addCarryable(s.carry);
+    souvenirs.push(s);
+  }
+
   // ── The wishing fountain: three coins you can fish out and pay with ──
   let saidCoin = false;
   for (let i = 0; i < 3; i++) {
-    const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.015, 16), new THREE.MeshStandardMaterial({ color: 0xe0b040, roughness: 0.3, metalness: 0.8 }));
     const a = (i / 3) * Math.PI * 2 + 0.4;
-    coin.position.set(FOUNTAIN.x + Math.cos(a) * 0.45, 0.5, FOUNTAIN.z + Math.sin(a) * 0.45);
-    root.add(coin);
-    ctx.addCarryable({
-      kind: 'shop-coin',
-      object: coin,
-      heldDist: 0.5,
-      heldDrop: 0.25,
-      projectile: { radius: 0.05, restitution: 0.4, gravity: 16 },
-      clickThrows: true,
+    spawnCoin(ctx, new THREE.Vector3(FOUNTAIN.x + Math.cos(a) * 0.45, 0.5, FOUNTAIN.z + Math.sin(a) * 0.45), {
       onGrab: () => {
         click();
         if (!saidCoin) {
@@ -194,12 +256,27 @@ export function revealGiftShop(ctx: GameContext): void {
   // ── The till ──
   let paid = false;
   ctx.addTarget({ kind: 'shop-till', position: TILL.clone().setY(1), radius: 2.2 });
+  let saidMember = false;
   hooks = {
-    pay: () => {
+    pay: (what) => {
       kaChing();
-      paid = true;
       discover('mech:shop-till');
-      ctx.narrate(ctx.isHolding('souvenir') ? PAID : PAID_EMPTY, 5000, { priority: true });
+      if (what === 'member') {
+        if (paid) return;
+        paid = true;
+        if (!saidMember) {
+          saidMember = true;
+          ctx.narrate(MEMBER, 5500, { priority: true });
+        }
+        return;
+      }
+      paid = true;
+      ctx.narrate(holdingGoods() ? PAID : PAID_EMPTY, 5000, { priority: true });
+    },
+    refund: () => {
+      kaChing();
+      spawnMoney(ctx, new THREE.Vector3(TILL.x + 0.1, 1.1, TILL.z + 0.2));
+      ctx.narrate(REFUND, 6500, { priority: true });
     },
     souvenirAtTill: () => {
       ctx.narrate(paid ? ALREADY : NOT_MONEY, 4000, { priority: true });
@@ -259,10 +336,13 @@ export function revealGiftShop(ctx: GameContext): void {
   };
   const caught = () => {
     whistle();
-    const s = souvenirs.find((x) => x.held);
-    ctx.consumeHeld('souvenir'); // out of your hand…
-    if (s) {
-      root.add(s.carry.object); // …and back on its shelf (still for sale)
+    // Everything unpaid out of both hands (consume takes a hand by kind, not a
+    // particular object)…
+    for (const k of GOODS) while (ctx.consumeHeld(k));
+    // …and whatever left a hand goes back on its shelf (still for sale).
+    for (const s of souvenirs) {
+      if (s.carry.object.parent) continue;
+      root.add(s.carry.object);
       s.carry.object.position.copy(s.home);
       s.held = false;
     }
@@ -281,6 +361,7 @@ export function revealGiftShop(ctx: GameContext): void {
   ctx.setRegions([shopRegion, doorway, room]);
 
   giftShopTest.pay = (what) => hooks?.pay(what);
+  giftShopTest.refund = () => hooks?.refund();
   giftShopTest.state = () => ({ paid, open, guardSees: sees });
 
   addUpdater((dt) => {
@@ -315,7 +396,7 @@ export function revealGiftShop(ctx: GameContext): void {
     const p = ctx.playerPos();
     const near = Math.hypot(p.x - TURNSTILE.x, p.z - TURNSTILE.z) < 1.35;
     if (near && !atGate && !open) {
-      if (!ctx.isHolding('souvenir')) {
+      if (!holdingGoods()) {
         if (!saidNo) {
           saidNo = true;
           ctx.narrate(TURNSTILE_NO, 4500, { priority: true });
@@ -329,6 +410,7 @@ export function revealGiftShop(ctx: GameContext): void {
     return false;
   });
 
+  setScriptHints(HINTS);
   ctx.narrate(INTRO, 6000);
 }
 
@@ -455,7 +537,7 @@ function buildTurnstile(root: THREE.Object3D): THREE.Group {
 
 function fitText(g: CanvasRenderingContext2D, text: string, style: string, maxPx: number, maxW: number, x: number, y: number): void {
   let px = maxPx;
-  do g.font = `${style} ${px}px Georgia, serif`;
+  do g.font = `${style} ${px}px ${FONT_VOICE}`;
   while (g.measureText(text).width > maxW && --px > 8);
   g.fillText(text, x, y);
 }

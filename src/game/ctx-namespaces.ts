@@ -52,7 +52,9 @@ export function attachNamespaces(flat: GameContextFlat): GameContext {
     launchPlayer: c.launchPlayer,
     die: c.die,
     isAirborne: c.isAirborne,
+    moveInput: c.moveInput,
     isDead: c.isDead,
+    setJump: c.setJump,
   };
   ctx.carry = {
     addCarryable: c.addCarryable,

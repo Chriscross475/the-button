@@ -25,14 +25,32 @@ export function spawnBabyWolf(ctx: GameContext, pos: THREE.Vector3): void {
   let fed = 0;
   let cool = 0;
   let doomed = false;
+  let tamed = false; // ate a Regret Bar: never grows another inch, never turns
 
   // Driven every frame by the Game's companion update (persists across levels).
   pup.userData.companionTick = (dt: number) => {
     if (doomed) return;
     cool -= dt;
     if (cool > 0) return;
-    // nearest duck in the world near the wolf (ducks tag themselves)
     const wp = pup.position;
+    // A Regret Bar anywhere near (on the floor, or in your hand): it eats it,
+    // and it is the last thing it will ever want. It stops growing, for good.
+    if (!tamed) {
+      for (const o of [...ctx.levelRoot.children, ...ctx.scene.children]) {
+        if ((o.userData as { kind?: string }).kind !== 'regret-bar') continue;
+        if (Math.hypot(o.position.x - wp.x, o.position.z - wp.z) > EAT_RANGE) continue;
+        tamed = true;
+        cool = EAT_COOLDOWN;
+        thud();
+        const c = (o.userData as { carryable?: unknown }).carryable;
+        if (c) ctx.removeCarryable(c as never);
+        o.parent?.remove(o);
+        discover('reward:tamed-wolf');
+        ctx.narrate('It ate the Regret Bar. All of it. It looks at you, and then at nothing, for a long time. It will not be growing any more. It will not be wanting anything any more. That is what regret does.', 9000, { priority: true });
+        return;
+      }
+    }
+    // nearest duck in the world near the wolf (ducks tag themselves)
     let best: THREE.Object3D | null = null;
     let bestD = EAT_RANGE * EAT_RANGE;
     for (const o of ctx.levelRoot.children) {
@@ -51,6 +69,7 @@ export function spawnBabyWolf(ctx: GameContext, pos: THREE.Vector3): void {
     if (carryable) ctx.removeCarryable(carryable as never);
     best.parent?.remove(best);
     fed++;
+    if (tamed) return; // it still eats ducks — it just never grows from them
     pup.scale.setScalar(BABY + (MOTHER - BABY) * Math.min(1, fed / TO_DOOM));
 
     if (fed === 1) ctx.narrate('Oh — it eats ducks. Of course it eats ducks.', 4000, { interruptible: true });

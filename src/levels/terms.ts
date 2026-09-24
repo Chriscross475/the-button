@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '../game/types';
+import { CONFIG } from '../config';
 import { addUpdater } from '../experiences/scheduler';
 import { spawnPedestalButton, sinkPedestalButton, type SpawnedButton } from '../button/pedestal-button';
 import { buildExitRoom } from './exit-room';
@@ -7,6 +8,10 @@ import { hideRoomShell } from './scaffold';
 import { tone, noise, ensureAudio, pop, sparkle } from '../audio/sfx';
 import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
+import { uvInk } from '../objects/uv-torch';
+import { spawnPremiumCard } from '../objects/premium-card';
+import { setScriptHints } from '../objects/script';
+import { FONT_SIGN, FONT_VOICE } from '../ui/fonts';
 
 // THE TERMS & CONDITIONS — the white room gives way to a long, carpeted
 // corridor. Down its left wall runs the agreement: sixteen framed pages, some
@@ -49,6 +54,12 @@ const CANCEL_1 = vo('To cancel, press the button marked cancel. It is right ther
 const CANCEL_2 = vo('Are you sure you want to cancel? There is a button for being sure.');
 const CANCEL_3 = vo('We are sorry to see you go. Press to confirm that you are sorry to see us go.');
 const CANCELLED = vo('Cancelled. Nothing has changed. The way out is open. Do come again. You will.');
+const CARD = vo('And a card pops out anyway. Button Premium. Your membership is cancelled, and here is your membership card. It works, apparently. Places that take it are very pleased to see it.');
+const SCRIPT_HINTS = vo([
+  'My notes say: page ten. Clause forty-seven. I skip it every time. On purpose.',
+  'Stand at page ten and actually read it. Look at it, properly, for a moment. The side door does the rest.',
+  'Or press I agree, and cancel three times. That also gets you out. It is just sadder.',
+]);
 
 // The small print. A handful of legible jokes among the boilerplate; 47 is
 // written in the same voice as the rest, so it has to be read to be found.
@@ -169,6 +180,8 @@ export function revealTerms(ctx: GameContext): void {
 
   buildCorridor(root);
   for (let i = 0; i < PAGES; i++) buildPage(root, i);
+  buildClause47Ink(root);
+  setScriptHints(SCRIPT_HINTS); // the Script, if you have it, reads these
 
   // The two exits, built now (out of sight behind shut walls) so nothing heavy
   // is added mid-level: the SIDE room (clause 47) and the END room (after the
@@ -242,6 +255,11 @@ export function revealTerms(ctx: GameContext): void {
     const { btn, sign } = chain[i];
     btn.interactable.promptLabel = 'PRESS';
     ctx.addObstacle(btn.obstacle);
+    // Rising under you pushes you aside: overlapping an obstacle blocks every move.
+    const c = ctx.camera.position;
+    const need = btn.obstacle.radius + CONFIG.PLAYER_RADIUS + 0.02;
+    const d = Math.hypot(c.x - btn.obstacle.x, c.z - btn.obstacle.z);
+    if (d < need) c.z = btn.obstacle.z + (c.z >= btn.obstacle.z ? need : -need); // along the corridor: never into a wall
     sign.visible = true;
     pop();
     let t = 0;
@@ -291,6 +309,9 @@ export function revealTerms(ctx: GameContext): void {
     retire(2);
     buzz();
     ctx.narrate(CANCELLED, 6000, { priority: true });
+    ctx.narrate(CARD, 7000);
+    // Out of a slot by the (sunk) CONFIRM button: your membership card.
+    spawnPremiumCard(ctx, new THREE.Vector3(0.7, 0.03, END_Z + 9.5), { onGrab: () => sparkle() });
     endOpen = true;
     ctx.setRegions(regions());
     endWall.open();
@@ -396,7 +417,7 @@ function buildPage(root: THREE.Object3D, i: number): void {
   g.fillRect(0, 0, cv.width, cv.height);
   g.fillStyle = '#2a2622';
   g.textAlign = 'center';
-  g.font = 'bold 34px Georgia, serif';
+  g.font = `bold 34px ${FONT_VOICE}`;
   g.fillText(`TERMS & CONDITIONS · PAGE ${i + 1} OF ${PAGES}`, cv.width / 2, 56);
   g.textAlign = 'left';
   const first = i * PER_PAGE + 1;
@@ -408,11 +429,41 @@ function buildPage(root: THREE.Object3D, i: number): void {
   root.add(page);
 }
 
+// UV ink over page 10 (clause 47 is its second clause): a violet ring round
+// the upper-middle of the text, a big "47", and an arrow at the side door —
+// only visible by the UV torch's beam. A plane just in front of the page.
+function buildClause47Ink(root: THREE.Object3D): void {
+  const PW = 3.6;
+  const PH = 2.3;
+  const cv = document.createElement('canvas');
+  cv.width = 1024;
+  cv.height = Math.round((1024 * PH) / PW);
+  const g = cv.getContext('2d')!;
+  g.strokeStyle = '#c070ff';
+  g.fillStyle = '#c070ff';
+  g.lineWidth = 10;
+  // a hand-drawn loop round the second paragraph (roughly the second fifth of the text)
+  g.beginPath();
+  g.ellipse(cv.width / 2, cv.height * 0.34, cv.width * 0.46, cv.height * 0.12, -0.03, 0, Math.PI * 2);
+  g.stroke();
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  let px = 150;
+  do g.font = `bold ${px}px ${FONT_SIGN}`;
+  while (g.measureText('47 → SIDE DOOR').width > cv.width - 120 && --px > 20);
+  g.fillText('47 → SIDE DOOR', cv.width / 2, cv.height * 0.72);
+  const ink = new THREE.Mesh(new THREE.PlaneGeometry(PW, PH), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv) }));
+  ink.rotation.y = Math.PI / 2; // faces +X, like the page
+  ink.position.set(-HALF_W + 0.16, 1.55, PAGE_Z(PAGE_47)); // 2 cm in front of it
+  root.add(ink);
+  uvInk(ink);
+}
+
 // Wrap paragraphs into (x, y, w, h), starting at `size` px and shrinking until
 // everything fits.
 function wrapFit(g: CanvasRenderingContext2D, paras: string[], x: number, y: number, w: number, h: number, size: number): void {
   for (let px = size; px >= 10; px--) {
-    g.font = `${px}px Georgia, serif`;
+    g.font = `${px}px ${FONT_VOICE}`;
     const lineH = px * 1.3;
     const lines: string[][] = [];
     for (const para of paras) {
@@ -457,7 +508,7 @@ function makeSign(text: string): THREE.Mesh {
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   let px = 64;
-  do g.font = `bold ${px}px Georgia, serif`;
+  do g.font = `bold ${px}px ${FONT_VOICE}`;
   while (g.measureText(text).width > 440 && --px > 12);
   g.fillText(text, 256, 68);
   return new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.35), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.DoubleSide }));

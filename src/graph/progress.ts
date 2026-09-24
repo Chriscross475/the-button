@@ -6,12 +6,18 @@
 import { EXP_INDEX, ITEM_INDEX, TARGET_INDEX } from './content-graph';
 
 const KEY = 'tb:discovered:v1';
+// Retired node ids → what replaced them, so saved progress keeps its discoveries.
+const RENAMED: Record<string, string> = {
+  'fx:feathers': 'mech:feathers',
+  'reward:found-script': 'item:script',
+  'reward:museum-swap': 'item:original-button',
+};
 const listeners = new Set<(ids: Set<string>) => void>();
 
 function read(): Set<string> {
   try {
     const raw = localStorage.getItem(KEY);
-    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    return new Set((raw ? (JSON.parse(raw) as string[]) : []).map((id) => RENAMED[id] ?? id));
   } catch {
     return new Set();
   }

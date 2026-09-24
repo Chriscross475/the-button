@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
 import type { GameContext } from '../game/types';
-import type { RoomBounds } from '../controls/player-camera';
+import type { RoomBounds, Obstacle } from '../controls/player-camera';
 import { addUpdater } from '../experiences/scheduler';
 import { DOOR_TYPES, LOCKED_DOOR_TYPE, type DoorHandle } from '../doors/door-types';
 import { registerInteractable } from '../interactables/system';
@@ -42,6 +42,7 @@ const FORWARD_QUIPS = vo([
   'That one practised while you were gone.',
   'Almost there. The last door has been rehearsing. Do act surprised.',
 ]);
+const KNOB_HINT = vo('It has a knob. Knobs are traditionally turned. Press it.');
 const RESHUFFLE_AGAIN = vo('And now they have all changed again. The key has made everyone self-conscious.');
 
 // PATH #2 — the corridor of doors.
@@ -74,6 +75,7 @@ interface DoorSlot {
   name: string;
   opened: boolean;
   manual?: boolean; // opened by a left-click on its knob, not on approach
+  blocker: Obstacle[]; // solid across the doorway while the door is shut
 }
 
 export function revealDoors(ctx: GameContext): void {
@@ -137,8 +139,10 @@ export function revealDoors(ctx: GameContext): void {
   }
 
   // A cross-wall at door k, sized to the (bigger) segment you're ENTERING, with a
-  // door-sized hole. Side pieces get collision so you funnel through the opening.
-  const mkDoorwayWall = (z: number, k: number) => {
+  // door-sized hole. Side pieces get a solid row of collision along their whole
+  // width, so you funnel through the opening; the opening itself is solid too
+  // until the door opens (the returned blocker — see openSlot).
+  const mkDoorwayWall = (z: number, k: number): Obstacle[] => {
     const w = segW(k + 1);
     const h = segH(k + 1);
     const dw = doorW(k);
@@ -154,8 +158,14 @@ export function revealDoors(ctx: GameContext): void {
     piece(sideW, h, -fillerX, h / 2);
     piece(sideW, h, fillerX, h / 2);
     piece(dw + 0.4, h - dh, 0, (dh + h) / 2); // lintel
-    ctx.addObstacle({ x: -fillerX, z, radius: 1.0 });
-    ctx.addObstacle({ x: fillerX, z, radius: 1.0 });
+    for (let x = dw / 2 + 0.3; x <= w / 2 + 0.3; x += 0.5) {
+      ctx.addObstacle({ x, z, radius: 0.35 });
+      ctx.addObstacle({ x: -x, z, radius: 0.35 });
+    }
+    const gap: Obstacle[] = [];
+    for (let x = -dw / 2; x <= dw / 2 + 1e-3; x += 0.5) gap.push({ x, z, radius: 0.35 });
+    for (const o of gap) ctx.addObstacle(o);
+    return gap;
   };
 
   // The doors — each successive one bigger + a more elaborate open-type.
@@ -168,13 +178,13 @@ export function revealDoors(ctx: GameContext): void {
     handle.group.position.set(0, 0, z);
     handle.open(0);
     root.add(handle.group);
-    mkDoorwayWall(z, k);
+    const blocker = mkDoorwayWall(z, k);
     const hue = (k / ND) * 0.8 + 0.05;
     const col = new THREE.Color().setHSL(hue, 0.55, 0.55);
     const lamp = new THREE.PointLight(col.getHex(), 0.9, 14, 2);
     lamp.position.set(0, segH(k + 1) - 0.7, z + 1.6);
     root.add(lamp);
-    const slot: DoorSlot = { z, handle, progress: 0, name: type.name, opened: false };
+    const slot: DoorSlot = { z, handle, progress: 0, name: type.name, opened: false, blocker };
     slots.push(slot);
 
     // The FIRST door has a knob you left-click to open (not proximity).
@@ -264,8 +274,9 @@ export function revealDoors(ctx: GameContext): void {
   // Soft neutral sky down the corridor (the room itself stays bright/white).
   const sky = new THREE.Color(0xa8acb4);
   const startBg = (ctx.scene.background as THREE.Color)?.clone() ?? new THREE.Color(0xf4f4f2);
-  if (!ctx.scene.fog) ctx.scene.fog = new THREE.Fog(0xa8acb4, 14, 80);
-  const fog = ctx.scene.fog as THREE.Fog;
+  // Set outright: the white room's fog (9–34 m) is still on the scene.
+  const fog = new THREE.Fog(0xa8acb4, 14, 80);
+  ctx.scene.fog = fog;
   let tb = 0;
   addUpdater((dt) => {
     tb += dt;
@@ -340,6 +351,10 @@ export function revealDoors(ctx: GameContext): void {
         }
         s.progress = Math.min(1, s.progress + dt / 0.9);
         s.handle.open(s.progress);
+        if (s.progress > 0.5 && s.blocker.length) {
+          for (const o of s.blocker) ctx.removeObstacle(o);
+          s.blocker.length = 0;
+        }
       }
     }
     return false;
@@ -354,6 +369,19 @@ export function revealDoors(ctx: GameContext): void {
       ctx.narrate(RESHUFFLE_AGAIN, 5500, { priority: true });
       reshuffleDoors();
     },
+  });
+
+  // Standing at the first (shut, knobbed) door without opening it: one nudge.
+  const firstSlot = slots[0];
+  let atFirstT = 0;
+  addUpdater((dt) => {
+    if (firstSlot.opened) return true;
+    atFirstT = Math.abs(player.z - firstSlot.z) < 3.5 ? atFirstT + dt : 0;
+    if (atFirstT > 6) {
+      ctx.narrate(KNOB_HINT, 4000);
+      return true;
+    }
+    return false;
   });
 
   // Pity the locked last door when you first reach it.

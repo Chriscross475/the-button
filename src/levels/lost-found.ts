@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { Obstacle } from '../controls/player-camera';
 import type { GameContext } from '../game/types';
 import { CONFIG } from '../config';
 import { addUpdater } from '../experiences/scheduler';
@@ -12,6 +13,9 @@ import { isDiscovered, discover } from '../graph/progress';
 import { spawnKey } from '../objects/key';
 import { spawnDuck } from '../objects/duck';
 import { spawnMoney } from '../objects/money';
+import { defineCombine } from '../game/combine';
+import { setScriptHints } from '../objects/script';
+import { FONT_VOICE } from '../ui/fonts';
 
 // LOST & FOUND — the white room becomes a lost-property office: a counter, a
 // clerk (the jointed dummy, in a cardigan), and shelves behind him holding
@@ -50,6 +54,26 @@ const GOT_SHOE = vo('A single left shoe. Somewhere, someone is hopping. Not our 
 const GOT_DIGNITY = vo('Your dignity, in a jar. Slightly used. Do not open it in public.');
 const ALREADY = vo('That has already been collected. By you. Just now. Keep up.');
 const WAY_OUT = vo('And a button, for leaving. Lost property is closing. It is always closing.');
+const PROOF = vo('Proof of ownership. He does not read it. Nobody reads them. He fetches the first thing on the shelf and stamps it. That is the system.');
+const PROOF_NONE = vo('Proof of ownership, for nothing. Everything here has been collected. He stamps it anyway. He likes stamping.');
+const HINTS = vo([
+  'Read a tag on the shelves. Item, colour, where it was lost. Then set the form to match, all three, and submit.',
+  'The form cycles when you press a row. Item, colour, place. Exactly as the tag says. Then the big red submit.',
+  'Or skip the form: a receipt, or a ticket, counts as proof of ownership. Show it at the counter. Nobody checks.',
+]);
+
+// Proof of ownership (a receipt from the self-checkout, a waiting-room ticket):
+// shown at the counter, it skips the form. Global recipes; the live office
+// wires the hook.
+let proof: (() => void) | null = null;
+for (const doc of ['receipt', 'ticket']) {
+  defineCombine(doc, 'lost-found-desk', (held, _t, env) => {
+    if (!proof) return true;
+    env.carry.removeCarryable(held);
+    held.object.parent?.remove(held.object);
+    proof();
+  });
+}
 
 interface Entry {
   item: (typeof ITEMS)[number];
@@ -127,11 +151,33 @@ function bell(): void {
 }
 
 /** Headless-test hook: press a form cell (0–2 rows, 3 SUBMIT) as if aimed at. */
-export const lostFoundTest: { press?: (cell: number) => void } = {};
+export const lostFoundTest: { press?: (cell: number) => void; proof?: () => void } = {};
 
 export function revealLostFound(ctx: GameContext): void {
   const root = ctx.levelRoot;
   ctx.openRoom({ walls: false, ceiling: false }); // the room stays; the button sinks
+  // Anything solid placed where you stand would pin you (you can't walk out of an
+  // obstacle), so once it's all built you're nudged clear of every solid.
+  const solids: Obstacle[] = [];
+  const solid = (o: Obstacle) => {
+    ctx.addObstacle(o);
+    solids.push(o);
+    return o;
+  };
+  const unstick = () => {
+    const c = ctx.camera.position;
+    for (let pass = 0; pass < 4; pass++) {
+      for (const o of solids) {
+        const need = o.radius + CONFIG.PLAYER_RADIUS + 0.05;
+        const d = Math.hypot(c.x - o.x, c.z - o.z);
+        if (d >= need) continue;
+        const nx = d > 1e-4 ? (c.x - o.x) / d : 0;
+        const nz = d > 1e-4 ? (c.z - o.z) / d : 1;
+        c.x = o.x + nx * need;
+        c.z = o.z + nz * need;
+      }
+    }
+  };
 
   const mat = (c: number, r = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
   const box = (sx: number, sy: number, sz: number, x: number, y: number, z: number, m: THREE.Material) => {
@@ -151,7 +197,7 @@ export function revealLostFound(ctx: GameContext): void {
   const wood = mat(0x7a5a3a);
   box(8, 1.05, 0.7, 0, 0.525, COUNTER_Z - 0.35, wood);
   box(8.1, 0.06, 0.8, 0, 1.08, COUNTER_Z - 0.35, mat(0x4a3a2a, 0.6));
-  for (let x = -4; x <= 4; x += 0.5) ctx.addObstacle({ x, z: COUNTER_Z - 0.35, radius: 0.4 });
+  for (let x = -4; x <= 4; x += 0.5) solid({ x, z: COUNTER_Z - 0.35, radius: 0.4 });
   // A service bell on the counter, for tone.
   const bellMesh = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xd8c070, metalness: 0.8, roughness: 0.3 }));
   bellMesh.position.set(2.8, 1.11, COUNTER_Z - 0.2);
@@ -209,7 +255,7 @@ export function revealLostFound(ctx: GameContext): void {
 
   // ── The form, on a lectern ──
   box(0.1, 1.0, 0.1, LECTERN.x, 0.5, LECTERN.z, mat(0x3a3a3e, 0.5));
-  ctx.addObstacle({ x: LECTERN.x, z: LECTERN.z, radius: 0.3 });
+  solid({ x: LECTERN.x, z: LECTERN.z, radius: 0.3 });
   const cv = document.createElement('canvas');
   cv.width = 512;
   cv.height = 640;
@@ -280,7 +326,10 @@ export function revealLostFound(ctx: GameContext): void {
   let busy = false;
   let wrongs = 0;
   let exitUp = false;
+  let idleT = 0; // since the last submit: past a while, the first hint (once)
+  let idleHinted = false;
   const submit = () => {
+    idleT = 0;
     const [item, colour, place] = [ITEMS[pick[0]], COLOURS[pick[1]], PLACES[pick[2]]];
     const match = shelved.find((s) => s.onShelf && s.e.item === item && s.e.colour === colour && s.e.place === place);
     if (!match) {
@@ -302,7 +351,10 @@ export function revealLostFound(ctx: GameContext): void {
       ctx.narrate(ALREADY, 3500, { priority: true });
       return;
     }
-    // He turns to the shelf, reaches, turns back, stamps, and hands it over.
+    handOver(match);
+  };
+  // He turns to the shelf, reaches, turns back, stamps, and hands it over.
+  const handOver = (match: (typeof shelved)[number], line?: string) => {
     busy = true;
     match.claimed = true;
     let t = 0;
@@ -319,7 +371,7 @@ export function revealLostFound(ctx: GameContext): void {
         clerk.rotation.y = 0;
         stampSound();
         match.e.give(ctx);
-        ctx.narrate(match.e.line, 5000, { priority: true });
+        ctx.narrate(line ?? match.e.line, 5000, { priority: true });
         discover('mech:lost-found');
         busy = false;
         if (!exitUp) {
@@ -331,6 +383,19 @@ export function revealLostFound(ctx: GameContext): void {
       return false;
     });
   };
+
+  ctx.addTarget({ kind: 'lost-found-desk', position: new THREE.Vector3(0, 1, COUNTER_Z), radius: 2.4 });
+  proof = () => {
+    if (busy) return;
+    const next = shelved.find((sh) => sh.onShelf && !sh.claimed);
+    if (!next) {
+      stampSound();
+      ctx.narrate(PROOF_NONE, 5000, { priority: true });
+      return;
+    }
+    handOver(next, PROOF);
+  };
+  lostFoundTest.proof = () => proof?.();
 
   const formUse: Interactable = {
     id: 'lost-found-form',
@@ -354,7 +419,14 @@ export function revealLostFound(ctx: GameContext): void {
     aimed = cell;
     formUse.onUse();
   };
-  addUpdater(() => {
+  addUpdater((dt) => {
+    if (!exitUp && !idleHinted) {
+      idleT += dt;
+      if (idleT > 35) {
+        idleHinted = true;
+        ctx.narrate(HINTS[0], 7000);
+      }
+    }
     const next = busy ? -1 : aimedCell();
     if (next !== aimed) {
       aimed = next;
@@ -371,11 +443,14 @@ export function revealLostFound(ctx: GameContext): void {
     const at = new THREE.Vector3(3.4, 0, COUNTER_Z + 2.4);
     if (Math.hypot(p.x - at.x, p.z - at.z) < 1.4) at.x = -3.4;
     const btn = spawnPedestalButton(root, at, () => ctx.advance(at), { glow: false });
-    ctx.addObstacle(btn.obstacle);
+    solid(btn.obstacle);
+    unstick();
     bell();
     ctx.narrate(WAY_OUT, 4500);
   };
 
+  unstick();
+  setScriptHints(HINTS);
   ctx.narrate(INTRO, 7500);
 }
 
@@ -384,7 +459,7 @@ export function revealLostFound(ctx: GameContext): void {
 function fitText(g: CanvasRenderingContext2D, text: string, weight: string, size: number, x: number, y: number, maxW: number): void {
   let px = size;
   do {
-    g.font = `${weight} ${px}px Georgia, serif`;
+    g.font = `${weight} ${px}px ${FONT_VOICE}`;
   } while (g.measureText(text).width > maxW && --px > 10);
   g.fillText(text, x, y);
 }

@@ -8,6 +8,7 @@ import { whoosh, pop, sparkle, thud, boo, applause, fanfare } from '../audio/sfx
 import { vo } from '../audio/vo-shared';
 import { registerInteractable } from '../interactables/system';
 import { discover } from '../graph/progress';
+import { FONT_DISPLAY, FONT_SIGN } from '../ui/fonts';
 
 // HOOPS — the room opens onto a gym: a half court, one hoop, a scoreboard, and
 // two opponents waiting at centre court. Walk up to one and press to pick him;
@@ -588,7 +589,11 @@ export function revealBasketball(ctx: GameContext): void {
     foe?.pose(won ? 'tired' : 'up'); // he slumps, or celebrates
     // A button to move on. Pressing it takes your ball WITH you — if it's not in
     // hand, it leaps there so the kept ball comes along to the next level.
-    const at = new THREE.Vector3(4, 0, 4);
+    // It rises clear of you: a solid pedestal on top of you would wedge you.
+    const pp = ctx.playerPos();
+    const at = [new THREE.Vector3(4, 0, 4), new THREE.Vector3(-4, 0, 4), new THREE.Vector3(4, 0, -4)].find(
+      (c) => Math.hypot(c.x - pp.x, c.z - pp.z) > 2,
+    )!;
     const btn = spawnPedestalButton(root, at, () => {
       if (!ctx.isHolding('basketball')) ctx.putInHand('right', carry);
       ctx.advance(at);
@@ -720,16 +725,16 @@ function buildScoreboard(root: THREE.Object3D): { draw: (you: number, him: numbe
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillStyle = '#9fb3c8';
-    g.font = 'bold 28px monospace';
+    g.font = `bold 28px ${FONT_DISPLAY}`;
     g.fillText('YOU', 128, 34);
     g.fillText(name, 384, 34);
     g.fillStyle = '#ffb22e';
-    g.font = 'bold 96px monospace';
+    g.font = `bold 96px ${FONT_DISPLAY}`;
     g.fillText(String(you).padStart(2, '0'), 128, 118);
     g.fillText(String(him).padStart(2, '0'), 384, 118);
     g.fillStyle = '#ff4a3a';
     g.fillText(':', 256, 112);
-    g.font = 'bold 34px monospace';
+    g.font = `bold 34px ${FONT_DISPLAY}`;
     g.fillText(clock, 256, 34); // the game clock, between the names
     tex.needsUpdate = true;
   };
@@ -769,7 +774,7 @@ function makeBaller(o: { height: number; width: number; jersey: number; trim: nu
   ng.fillStyle = '#' + o.jersey.toString(16).padStart(6, '0');
   ng.fillRect(0, 0, 128, 160);
   ng.fillStyle = '#' + o.trim.toString(16).padStart(6, '0');
-  ng.font = 'bold 84px sans-serif';
+  ng.font = `bold 84px ${FONT_SIGN}`;
   ng.textAlign = 'center';
   ng.textBaseline = 'middle';
   ng.fillText(o.number, 64, 88);
@@ -826,7 +831,7 @@ function makeBaller(o: { height: number; width: number; jersey: number; trim: nu
   lg.fillStyle = 'rgba(12,12,16,0.75)';
   lg.fillRect(0, 0, 256, 64);
   lg.fillStyle = '#ffe9a8';
-  lg.font = 'bold 34px sans-serif';
+  lg.font = `bold 34px ${FONT_SIGN}`;
   lg.textAlign = 'center';
   lg.textBaseline = 'middle';
   lg.fillText(o.name, 128, 34);

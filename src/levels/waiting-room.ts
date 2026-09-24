@@ -13,6 +13,9 @@ import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
 import { playLevelMusic } from '../audio/music';
 import { setYaw, setPitch, setEyeHeight } from '../controls/player-camera';
+import { spinnerSpeed } from '../objects/spinner';
+import { setScriptHints } from '../objects/script';
+import { FONT_DISPLAY, FONT_SIGN, FONT_VOICE } from '../ui/fonts';
 
 // THE WAITING ROOM — the white room, gone institutional: rows of plastic chairs,
 // a potted plant, a water cooler, a counter behind glass with a clerk, and a
@@ -50,12 +53,18 @@ const TWO_ASLEEP = vo('Number two is asleep. Number two is holding up the entire
 const TWO_FORFEIT = vo('Two has forfeited. Two will be told, when two wakes up.');
 const TOOK_TICKET = vo('You took a sleeping man\'s ticket. He will never know. You will.');
 const SIT = vo('You sit. The chair is exactly as comfortable as it looks. The numbers do not go any faster.');
+const SPUN = vo('The spinner. The numbers are going faster. The clerk has not noticed. The clerk has never noticed anything.');
+const SCRIPT_NOTES = vo([
+  'Page twelve. The sleeping man in the chair has ticket number two. On his lap. It is not stealing if he is asleep. It is stealing.',
+  'Page thirteen. Or wait for all nine hundred and forty-seven. It speeds up. Eventually.',
+]);
 const NOT_YET = vo('That is not the number on the screen. Sit down.');
 const SERVED_SWAP = vo('Two? You do not look like a two. The clerk does not care. Stamped.');
 const SERVED_OWN = vo('Nine hundred and forty-eight. At last. The clerk stamps your form. You have aged.');
 const BRIBE = vo('The clerk pockets it and stamps your form without looking up. The system works.');
 const RIOT = vo('A duck, over the counter. Paperwork everywhere. The clerk is under the desk. In the confusion, you are served.');
 const YOUR_TURN = vo('Nine hundred and forty-eight. That is you. That is actually you. Go.');
+const YOUR_TURN_HINT = vo('The counter. Hold your ticket up to the glass. That is the whole procedure.');
 const DESPAIR: [number, string][] = vo([
   [50, 'Fifty. Nine hundred to go. I have started a small garden in my mind.'],
   [200, 'Two hundred. The plant in the corner has grown. I think it is the same plant.'],
@@ -186,12 +195,12 @@ export function revealWaitingRoom(ctx: GameContext): void {
     dg.fillStyle = '#0b0c0f';
     dg.fillRect(0, 0, 512, 192);
     dg.fillStyle = '#9fb3c8';
-    dg.font = 'bold 30px monospace';
+    dg.font = `bold 30px ${FONT_DISPLAY}`;
     dg.textAlign = 'center';
     dg.textBaseline = 'middle';
     dg.fillText('NOW SERVING', 256, 34);
     dg.fillStyle = '#ff3b2e';
-    dg.font = 'bold 110px monospace';
+    dg.font = `bold 110px ${FONT_DISPLAY}`;
     dg.fillText(String(n).padStart(3, '0'), 256, 122);
     dispTex.needsUpdate = true;
   };
@@ -204,7 +213,7 @@ export function revealWaitingRoom(ctx: GameContext): void {
   sg.fillStyle = '#f2f2ee';
   sg.fillRect(0, 0, 256, 64);
   sg.fillStyle = '#1a1a1a';
-  sg.font = 'bold 30px sans-serif';
+  sg.font = `bold 30px ${FONT_SIGN}`;
   sg.textAlign = 'center';
   sg.textBaseline = 'middle';
   sg.fillText('TAKE A NUMBER', 128, 34);
@@ -261,7 +270,7 @@ export function revealWaitingRoom(ctx: GameContext): void {
     g.fillStyle = '#c62828';
     g.fillRect(0, 0, 128, 12);
     g.fillStyle = '#1a1a1a';
-    g.font = 'bold 44px monospace';
+    g.font = `bold 44px ${FONT_DISPLAY}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText(String(n).padStart(3, '0'), 64, 44);
@@ -408,7 +417,7 @@ export function revealWaitingRoom(ctx: GameContext): void {
   zCv.width = zCv.height = 64;
   const zg = zCv.getContext('2d')!;
   zg.fillStyle = '#6a6a74';
-  zg.font = 'bold 48px serif';
+  zg.font = `bold 48px ${FONT_VOICE}`;
   zg.textAlign = 'center';
   zg.textBaseline = 'middle';
   zg.fillText('z', 32, 34);
@@ -419,10 +428,12 @@ export function revealWaitingRoom(ctx: GameContext): void {
   // ── The queue ──
   let nowServing = 1;
   let callT = 6; // until the next call
+  let saidSpun = false;
   let waitingForTwo = 0; // seconds spent calling two
   let rush = RUSH_START;
   let saidAsleep = false;
   let saidYours = false;
+  let yoursT = 0; // seconds since 948 was called, unserved
   const despairSaid = new Set<number>();
   const hud = () => setCounter(`NOW SERVING ${String(nowServing).padStart(3, '0')}    YOUR TICKET ${lowestHeld ? String(lowestHeld).padStart(3, '0') : '—'}`);
   const call = (n: number) => {
@@ -544,12 +555,24 @@ export function revealWaitingRoom(ctx: GameContext): void {
         chime();
         ctx.narrate(YOUR_TURN, 5000, { priority: true });
       }
+      // Still standing there: how you actually get served.
+      if (!served) {
+        yoursT += dt;
+        if (yoursT > 14 && yoursT - dt <= 14) ctx.narrate(YOUR_TURN_HINT, 5000);
+      }
       return false;
     }
-    callT -= dt;
+    // The queue's own clock: faster with the Spinner in hand.
+    const sp = spinnerSpeed(ctx);
+    if (sp > 1 && !saidSpun) {
+      saidSpun = true;
+      ctx.narrate(SPUN, 5000);
+    }
+    const qdt = dt * sp;
+    callT -= qdt;
     if (nowServing === 2) {
       // Waiting on a sleeping man.
-      waitingForTwo += dt;
+      waitingForTwo += qdt;
       if (!saidAsleep && waitingForTwo > 18) {
         saidAsleep = true;
         ctx.narrate(TWO_ASLEEP, 5000, { interruptible: true });
@@ -597,5 +620,6 @@ export function revealWaitingRoom(ctx: GameContext): void {
     return false;
   });
 
+  setScriptHints(SCRIPT_NOTES);
   ctx.narrate(INTRO, 6500);
 }

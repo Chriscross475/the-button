@@ -12,6 +12,7 @@ import { spawnDuck } from '../objects/duck';
 import { discover } from '../graph/progress';
 import { rewardPlinth } from './scaffold';
 import { buildExitRoom } from './exit-room';
+import { FONT_SIGN, FONT_VOICE } from '../ui/fonts';
 
 // THE BIG TOP — the show must go on, and you are the show. A round tent at
 // ground level: a sawdust ring, bleachers packed with a cardboard crowd,
@@ -78,6 +79,7 @@ const bleacherTop = (r: number) =>
 
 const INTRO = vo('A big top, a full house, and you: the entire act. Earn their applause and there is a prize. Disappoint them and there is also a prize. It is me, pointing that out.');
 const IN_CANNON = vo('Into the cannon. Look where you would like to land. Press when you have made peace with it.');
+const CANNON_OUT = vo('Changed your mind? Walk backwards out of it. Nobody will say anything. I will.');
 const NET_LINES = vo(['The net! They love you. I am furious.', 'Into the net. A professional. Who knew.']);
 const MISSED_NET = vo('You missed the net. The net was the whole act.');
 const HIT_CANVAS = vo('Into the canvas. Your outline is on the tent now. That is art.');
@@ -222,6 +224,8 @@ export function revealCircus(ctx: GameContext): void {
   let cannonFlight = false;
   let netBounces = 0;
   let saidInCannon = false;
+  let saidCannonOut = false;
+  let cannonT = 0; // seconds sat in the barrel this time
   const aimDir = new THREE.Vector3();
   const seat = new THREE.Vector3();
   const aimCannon = () => {
@@ -233,9 +237,14 @@ export function revealCircus(ctx: GameContext): void {
     return { yaw, pitch };
   };
   const cannonMode: ControlMode = {
-    update(_dt, input) {
+    update(dt, input) {
       updateLook(ctx.camera, input);
       aimCannon();
+      cannonT += dt;
+      if (cannonT > 10 && !saidCannonOut) {
+        saidCannonOut = true; // how to get out without firing, once
+        ctx.narrate(CANNON_OUT, 4500);
+      }
       cannon.barrel.localToWorld(seat.set(0, 0, 1.3)); // your head, just out of the muzzle
       ctx.camera.position.copy(seat);
       if (input.moveY > 0.5) {
@@ -271,6 +280,7 @@ export function revealCircus(ctx: GameContext): void {
       drumroll(1.4);
       spots.follow('player');
       inCannon = true;
+      cannonT = 0;
       ctx.setControlMode(cannonMode);
       if (!saidInCannon) {
         saidInCannon = true;
@@ -673,7 +683,7 @@ function buildTent(root: THREE.Object3D): void {
   sg.fillStyle = '#0f3d1c';
   sg.fillRect(0, 0, 128, 48);
   sg.fillStyle = '#6dff8e';
-  sg.font = 'bold 34px sans-serif';
+  sg.font = `bold 34px ${FONT_SIGN}`;
   sg.textAlign = 'center';
   sg.textBaseline = 'middle';
   sg.fillText('EXIT', 64, 26);
@@ -851,7 +861,7 @@ function buildMeter(root: THREE.Object3D): { set: (v: number) => void } {
   c.fillStyle = '#c62828';
   c.fillRect(0, 0, 256, 64);
   c.fillStyle = '#ffe9a8';
-  c.font = 'bold 40px serif';
+  c.font = `bold 40px ${FONT_VOICE}`;
   c.textAlign = 'center';
   c.textBaseline = 'middle';
   c.fillText('APPLAUSE', 128, 34);

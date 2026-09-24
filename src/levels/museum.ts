@@ -10,7 +10,13 @@ import { hideRoomShell } from './scaffold';
 import { tone, noise, ensureAudio, sparkle, thud } from '../audio/sfx';
 import { vo } from '../audio/vo-shared';
 import { discover, isDiscovered } from '../graph/progress';
-import { KEY_COLORS } from '../objects/key';
+import { KEY_COLORS, buildLock, keyKind } from '../objects/key';
+import { defineCombine, type Carryable, type CombineEnv } from '../game/combine';
+import { spawnOriginalButton } from '../objects/original-button';
+import { uvInk } from '../objects/uv-torch';
+import { setScriptHints } from '../objects/script';
+import { spawnCoin } from '../objects/coin';
+import { FONT_SIGN, FONT_VOICE } from '../ui/fonts';
 
 // THE MUSEUM — a hushed gallery about this game. Exhibits on plinths under
 // glass: things from the other rooms (a duck, the axe, a model train, the
@@ -27,6 +33,17 @@ import { KEY_COLORS } from '../objects/key';
 // "please do not squeeze"), or throw something (a duck, the ball, anything
 // that lands) — and he walks over to investigate, his back to the button.
 // The back door (behind you) is always open: the sensible exit, no prize.
+//
+// Two more things for people who bring things:
+//   • THE SWAP — hold a replica button (the gift shop sells them) up to the
+//     centrepiece while he isn't looking: the replica goes on the pedestal and
+//     THE BUTTON (2026) goes in your hand — a single-use "skip this room" press,
+//     good anywhere. Seen doing it: escorted out, replica confiscated. After a
+//     swap, the thing on the pedestal is only the replica you brought.
+//   • STAFF ONLY — a door in the left wall with a yellow lock (the yellow key
+//     is on the lift's hidden floor 13). Behind it: the staff room, a coin on
+//     the table, and its own way out.
+// And UV ink on the floor by the rope (the torch shows it) tells you his habits.
 
 const PH = CONFIG.PLAYER_HEIGHT;
 const HALL = { minX: -9, maxX: 9, minZ: -20, maxZ: 12, h: 6 };
@@ -38,15 +55,41 @@ const EXIT = new THREE.Vector3(0, 0, HALL.maxZ + 4.5); // the back-door exit roo
 const GAZE_RANGE = 11;
 const GAZE_HALF = 0.62; // radians (~35°) either side of where he looks
 const WALK = 1.7; // his walking speed
+const STAFF_Z = -17; // the STAFF ONLY door, in the left wall (x = HALL.minX)
+const STAFF_HALF = 0.8;
+const STAFF_H = 2.4;
+const STAFF_ROOM = new THREE.Vector3(HALL.minX - 0.1 - 4, 0, STAFF_Z); // its exit room, behind the wall
 
 const INTRO = vo('Welcome to the museum. Everything in here is something you did. Please do not touch anything. Especially that.');
 const CENTREPIECE = vo('And the centrepiece. The Button, twenty twenty-six. Do not touch. He is watching it. He is always watching it.');
+const GUARD_HINT = vo('He will not stop watching it on his own. Not for long. Something loud, somewhere else, would help. The big rubber duck by the door, for instance. It says do not squeeze.');
 const SQUEAK_FIRST = vo('It squeaked. The guard heard it squeak. Everybody heard it squeak.');
 const HEARD = vo(['He heard that. He is going to look at it. Thoroughly.', 'Something landed. He has gone to have a word with it.']);
 const CAUGHT = vo('He saw that. Of course he saw that. You are being escorted out. Through the back. No gift shop.');
 const WIN = vo('You touched it. Nobody saw. The single most important thing you have ever done, and there are no witnesses. Off you go.');
 const BACK_DOOR = vo('Leaving already. The gift shop is also closed.');
 const UNKNOWN = vo('This one is under a sheet. You have not earned it yet.');
+const SWAPPED = vo('The replica goes on the pedestal. The original goes in your pocket. Nobody saw. Twenty twenty-six will never know.');
+const REPLICA_PRESS = vo('It does nothing. It is a replica. You know that. You put it there.');
+const STAFF_OPEN = vo('Staff only. The yellow key fits. You are staff now. Nobody has told the staff.');
+const HINTS = vo([
+  'Page, museum. He watches the button. He glances away every six to ten seconds, and not for long. Be patient, or be loud.',
+  'Squeeze the big rubber duck by the door. He goes over to look at it, for about five seconds. That is your window.',
+  'Anything you throw that lands is a noise too. Ducks work. Balls work.',
+  'If you happened to own a replica of the button, you could swap it. I did not say that. It is written here, but I did not say it.',
+]);
+
+// The museum's combines are global (defineCombine); the live museum wires
+// them up for its own centrepiece and staff door.
+let live: { swap: (held: Carryable, env: CombineEnv) => void; staff: (held: Carryable, env: CombineEnv) => void } | null = null;
+defineCombine('replica-button', 'museum-centrepiece', (held, _t, env) => {
+  live?.swap(held, env);
+  return true; // (the swap handles what's in your hand)
+});
+defineCombine(keyKind('yellow'), 'museum-staff-door', (held, _t, env) => {
+  live?.staff(held, env);
+  return true;
+});
 
 interface Exhibit {
   id: string; // content-graph node that unveils it
@@ -209,6 +252,16 @@ export function revealMuseum(ctx: GameContext): void {
 
   type GState = 'watch' | 'walk' | 'look' | 'return' | 'escort' | 'still';
   let gs: GState = 'watch';
+  let distracted = false; // he has gone to look at a noise at least once
+  // Never distracted him and still here: point at the squeaky duck, once.
+  let hintT = 0;
+  addUpdater((dt) => {
+    if (done || distracted) return true;
+    hintT += dt;
+    if (hintT < 50) return false;
+    ctx.narrate(GUARD_HINT, 6500);
+    return true;
+  });
   let bodyYaw = 0; // facing +Z: toward the button (and you)
   let headYaw = 0;
   let glanceT = 6;
@@ -254,6 +307,7 @@ export function revealMuseum(ctx: GameContext): void {
     target.z = THREE.MathUtils.clamp(target.z, HALL.minZ + 1, HALL.maxZ - 1);
     gs = 'walk';
     headYaw = 0;
+    distracted = true;
     ctx.narrate(HEARD[heardLine++ % HEARD.length], 3500, { interruptible: true });
   };
 
@@ -302,17 +356,33 @@ export function revealMuseum(ctx: GameContext): void {
   };
 
   // ── The press ──
+  const caught = () => {
+    // Caught: whistle, the button goes down, and he walks you out the back.
+    done = true;
+    whistle();
+    sinkPedestalButton(button);
+    ctx.narrate(CAUGHT, 6000, { priority: true });
+    gs = 'escort';
+    escortStart();
+  };
+  let swapped = false;
+  let replicaCool = 0;
   const pressed = () => {
     if (done) return;
-    done = true;
     const p = ctx.playerPos();
+    if (swapped) {
+      // Only the replica you left there. Touching it in plain sight still counts.
+      if (sees(p)) return caught();
+      if (replicaCool <= 0) {
+        replicaCool = 4;
+        ctx.narrate(REPLICA_PRESS, 3500, { priority: true });
+      }
+      return;
+    }
+    done = true;
     if (sees(p)) {
-      // Caught: whistle, the button goes down, and he walks you out the back.
-      whistle();
-      sinkPedestalButton(button);
-      ctx.narrate(CAUGHT, 6000, { priority: true });
-      gs = 'escort';
-      escortStart();
+      done = false;
+      caught();
     } else {
       sparkle();
       discover('reward:museum-heist');
@@ -368,12 +438,97 @@ export function revealMuseum(ctx: GameContext): void {
     ctx.setControlMode(escortMode);
   };
 
+  // ── The swap ──
+  ctx.addTarget({ kind: 'museum-centrepiece', position: CENTRE.clone(), radius: ROPE_R + 1.2 });
+  // ── STAFF ONLY: a yellow-locked door in the left wall ──
+  const hinge = new THREE.Group();
+  hinge.position.set(HALL.minX + 0.04, 0, STAFF_Z + STAFF_HALF);
+  root.add(hinge);
+  const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.06, STAFF_H, STAFF_HALF * 2), new THREE.MeshStandardMaterial({ color: 0x3a2a20, roughness: 0.7 }));
+  leaf.position.set(0, STAFF_H / 2, -STAFF_HALF);
+  hinge.add(leaf);
+  const lock = buildLock('yellow');
+  lock.rotation.y = Math.PI / 2; // faces +X, into the hall
+  lock.position.set(0.05, 1.1, -STAFF_HALF * 2 + 0.25);
+  hinge.add(lock);
+  const staffSign = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.3), new THREE.MeshBasicMaterial({ map: plaqueTexture(-1, 'STAFF ONLY') }));
+  staffSign.rotation.y = Math.PI / 2;
+  staffSign.position.set(HALL.minX + 0.08, STAFF_H + 0.35, STAFF_Z);
+  root.add(staffSign);
+  const staffRoom = buildExitRoom(ctx, { center: STAFF_ROOM, facing: 'posX' }); // built now, out of sight
+  spawnCoin(ctx, new THREE.Vector3(STAFF_ROOM.x - 1.5, 0.06, STAFF_ROOM.z + 2.5)); // the staff tea money
+  ctx.addTarget({ kind: 'museum-staff-door', position: new THREE.Vector3(HALL.minX + 0.4, 1, STAFF_Z), radius: 2 });
+  let staffOpen = false;
+  live = {
+    swap: (held, env) => {
+      if (done || swapped) return;
+      if (sees(ctx.playerPos())) {
+        env.carry.removeCarryable(held); // confiscated
+        held.object.parent?.remove(held.object);
+        caught();
+        return;
+      }
+      swapped = true;
+      env.carry.removeCarryable(held); // the replica stays on the pedestal
+      held.object.parent?.remove(held.object);
+      const orig = spawnOriginalButton(ctx, CENTRE.clone().setY(1.1));
+      env.carry.putInHand(env.side, orig);
+      sparkle();
+      ctx.narrate(SWAPPED, 6500, { priority: true });
+    },
+    staff: (held, env) => {
+      if (staffOpen) return;
+      staffOpen = true;
+      env.carry.removeCarryable(held); // the key is spent
+      held.object.parent?.remove(held.object);
+      discover('mech:museum-staff-door');
+      ctx.narrate(STAFF_OPEN, 5000, { priority: true });
+      ctx.setRegions([
+        ...hallRegions,
+        // the doorway overlaps the hall and the staff room by ≥ 2 × the player radius
+        { minX: HALL.minX - 1.0, maxX: HALL.minX + 1.1, minZ: STAFF_Z - STAFF_HALF + 0.05, maxZ: STAFF_Z + STAFF_HALF - 0.05, floorY: 0 },
+        staffRoom,
+      ]);
+      let t = 0;
+      addUpdater((dt) => {
+        t = Math.min(1, t + dt / 0.9);
+        hinge.rotation.y = 1.5 * (1 - Math.pow(1 - t, 3)); // swings into the staff room
+        return t >= 1;
+      });
+    },
+  };
+
+  // ── UV ink by the rope: his habits, for anyone with the torch ──
+  const inkCv = document.createElement('canvas');
+  inkCv.width = 512;
+  inkCv.height = 256;
+  const ig = inkCv.getContext('2d')!;
+  ig.fillStyle = '#c98cff';
+  ig.textAlign = 'center';
+  ig.textBaseline = 'middle';
+  const inkLines = ['HE LOOKS AWAY', 'EVERY 6-10 SECONDS.', 'THE DUCK BUYS YOU 5.'];
+  inkLines.forEach((l, i) => {
+    let px = 60;
+    do ig.font = `bold ${px}px ${FONT_SIGN}`;
+    while (ig.measureText(l).width > 480 && --px > 12);
+    ig.fillText(l, 256, 50 + i * 78);
+  });
+  const ink = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(inkCv), transparent: true }));
+  ink.rotation.x = -Math.PI / 2;
+  ink.position.set(CENTRE.x, 0.06, CENTRE.z + ROPE_R + 1.6); // on the floor, in front of the rope
+  root.add(ink);
+  uvInk(ink);
+
+  setScriptHints(HINTS);
+  museumTest.guard = () => ({ x: guard.root.position.x.toFixed(1), z: guard.root.position.z.toFixed(1), yaw: (bodyYaw + headYaw).toFixed(2), gs, sees: sees(ctx.playerPos()) });
+
   // ── Per frame ──
   let saidCentre = false;
   let saidBack = false;
   addUpdater((dt) => {
     const p = ctx.playerPos();
     squeakCool = Math.max(0, squeakCool - dt);
+    replicaCool = Math.max(0, replicaCool - dt);
     if (squash > 0) {
       squash = Math.max(0, squash - dt * 4);
       rubber.scale.set(3.2 * (1 + squash * 0.12), 3.2 * (1 - squash * 0.2), 3.2 * (1 + squash * 0.12));
@@ -444,11 +599,12 @@ export function revealMuseum(ctx: GameContext): void {
 
   // ── The back door: a plain exit room behind where you came in ──
   const room = buildExitRoom(ctx, { center: EXIT, facing: 'negZ' });
-  ctx.setRegions([
+  const hallRegions = [
     { minX: HALL.minX + 0.4, maxX: HALL.maxX - 0.4, minZ: HALL.minZ + 0.4, maxZ: HALL.maxZ - 0.2, floorY: 0 },
     { minX: -1.1, maxX: 1.1, minZ: HALL.maxZ - 1, maxZ: HALL.maxZ + 1, floorY: 0 },
     room,
-  ]);
+  ];
+  ctx.setRegions(hallRegions);
 
   ctx.narrate(INTRO, 6000);
 }
@@ -500,7 +656,15 @@ function buildHall(root: THREE.Object3D): void {
   lintel.position.set(0, 3 + (HALL.h - 3) / 2, HALL.maxZ);
   lintel.rotation.y = Math.PI;
   root.add(lintel);
-  side(D, HALL.minX, cz, Math.PI / 2);
+  // the left wall, with the STAFF ONLY doorway (z STAFF_Z ± STAFF_HALF)
+  const doorLo = STAFF_Z - STAFF_HALF;
+  const doorHi = STAFF_Z + STAFF_HALF;
+  side(doorLo - HALL.minZ, HALL.minX, (HALL.minZ + doorLo) / 2, Math.PI / 2);
+  side(HALL.maxZ - doorHi, HALL.minX, (doorHi + HALL.maxZ) / 2, Math.PI / 2);
+  const staffLintel = new THREE.Mesh(new THREE.PlaneGeometry(STAFF_HALF * 2, HALL.h - STAFF_H), wall);
+  staffLintel.position.set(HALL.minX, STAFF_H + (HALL.h - STAFF_H) / 2, STAFF_Z);
+  staffLintel.rotation.y = Math.PI / 2;
+  root.add(staffLintel);
   side(D, HALL.maxX, cz, -Math.PI / 2);
   const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshStandardMaterial({ color: 0xe8e2d6, roughness: 1, side: THREE.DoubleSide }));
   ceil.rotation.x = Math.PI / 2;
@@ -629,7 +793,7 @@ function plaqueTexture(n: number, name: string): THREE.CanvasTexture {
   const fit = (text: string, style: string, size: number, y: number) => {
     let px = size;
     do {
-      g.font = `${style} ${px}px Georgia, serif`;
+      g.font = `${style} ${px}px ${FONT_VOICE}`;
     } while (g.measureText(text).width > W - 48 && --px > 10);
     g.fillText(text, W / 2, y);
   };
@@ -674,3 +838,6 @@ function makeGuard(): { root: THREE.Group; head: THREE.Object3D; legL: THREE.Obj
     armR: g.getObjectByName('armR') as THREE.Object3D,
   };
 }
+
+/** Headless-test hooks: the live swap / staff-door handlers. */
+export const museumTest = { live: () => live, guard: (): unknown => null };

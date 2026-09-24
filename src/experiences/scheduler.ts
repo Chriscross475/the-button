@@ -43,6 +43,26 @@ export function currentGeneration(): number {
   return generation;
 }
 
+// Room-press listeners: things a gag leaves in the white room that change on
+// every LATER press of its button (a plant that grows, a tally that counts).
+// Dropped with the updater pool, like everything else in the room.
+const pressListeners: { gen: number; fn: () => void }[] = [];
+
+/** Call `fn` on every later press of the white room's button, until the room
+ *  is left. */
+export function onRoomPress(fn: () => void): void {
+  pressListeners.push({ gen: generation, fn });
+}
+
+/** The white room's button was pressed (the hub calls this before the press
+ *  picks its experience). */
+export function notifyRoomPress(): void {
+  for (let i = pressListeners.length - 1; i >= 0; i--) {
+    if (pressListeners[i].gen !== generation) pressListeners.splice(i, 1);
+  }
+  for (const l of [...pressListeners]) l.fn();
+}
+
 /** Run `fn` once after `ms` of GAME time, through the updater pool — so a level
  *  transition cancels it automatically. Content must use this (via ctx.after)
  *  instead of window.setTimeout, which outlives the level and fires into the

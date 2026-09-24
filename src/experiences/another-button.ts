@@ -199,8 +199,17 @@ export const anotherButton: Experience = {
             m.emissive.setHex(0x1a6a3a);
             t.mesh.position.y = 0.03; // pressed down
             if (activated >= tiles.length) {
-              ctx.narrate('All of them. Well done. Truly. No prize, but — well done.', 5000, { priority: true });
-              ctx.advance();
+              ctx.narrate('All of them. Well done. Truly. No prize, but — a button. Press it and we never speak of this.', 5000, { priority: true });
+              // The way out: one plain button rises on the most central tile
+              // clear of you (never on top of you: an obstacle you're inside
+              // blocks every move).
+              const clear = tiles.filter((t) => Math.hypot(player.x - t.x, player.z - t.z) > 1.6);
+              const spot = clear.reduce((a, t) => (Math.hypot(t.x, t.z + 1) < Math.hypot(a.x, a.z + 1) ? t : a), clear[0] ?? tiles[0]);
+              const at = new THREE.Vector3(spot.x, 0, spot.z);
+              const exit = spawnPedestalButton(root, at, () => ctx.advance(at.clone()));
+              ctx.addObstacle(exit.obstacle);
+              riseIn(exit.group);
+              whoosh();
               return true;
             }
           }

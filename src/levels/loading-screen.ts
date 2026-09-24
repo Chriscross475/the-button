@@ -8,6 +8,9 @@ import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
 import { hideRoomShell } from './scaffold';
 import { buildExitRoom } from './exit-room';
+import { spawnSpinner } from '../objects/spinner';
+import { setScriptHints } from '../objects/script';
+import { FONT_SIGN } from '../ui/fonts';
 
 // THE LOADING SCREEN — the white room gives way to a flat grey void, and in it,
 // a giant loading bar at 99%. It has been at 99% for some time. Tips cycle on a
@@ -18,6 +21,13 @@ import { buildExitRoom } from './exit-room';
 // and you shove it in — it resists, and slides back if you let go. Push it all
 // the way and it loads: 100%… then 101%. The bar dissolves, the fog lifts, and
 // the exit room was out there the whole time.
+//
+// Or unload it. At the RIGHT end the fill stops a metre short of the frame:
+// step into that gap and push its end the other way. Unloading is easy — it
+// goes with every step, and you walk it (inside the frame, the fill giving way
+// ahead of you) all the way back to 0%. Loading cancelled: the spinner stops,
+// falls off, and is yours (the Spinner: things load faster near it). The bar
+// still dissolves and the way out still appears.
 
 const L = 24; // frame length (x); the fill is the same length
 const BAR_Z = -8; // bar centre line
@@ -44,7 +54,11 @@ const TIPS = vo([
   'Tip: do not stare at the spinner. The spinner stares back.',
   'Tip: loading bars are pushed along by the engine. This one appears to be pushed along by nobody.',
   'Tip: walking into things is usually a mistake. Usually.',
+  'Tip: pushing the bar the other way is not recommended. There is a gap at the right end for that. Do not use it.',
 ]);
+const REVERSING = vo('You are pushing it backwards. Nobody pushes it backwards. It is going, though. Unloading is always easier.');
+const UNLOADED = vo('Zero percent. Loading cancelled. The spinner has stopped. It has fallen off. It has nowhere to be now. Take it.');
+const SPINNER_TAKEN = vo('The spinner. Things load faster near it. Queues, holds, lifts. Everything that makes you wait.');
 const PUSHING = vo('Are you pushing the loading bar. You are pushing the loading bar.');
 const SLIPPED = vo('It slid back. Loading bars have feelings. Mostly spite.');
 const LOADED = vo('One hundred percent. Loaded. Everything is loaded. Please continue.');
@@ -110,12 +124,18 @@ export function revealLoadingScreen(ctx: GameContext): void {
   bar.add(sheen);
 
   // Solid along its length — but not at the far left, so you can reach the stub.
+  // (…and not past the fill's right end: the gap there — and, once you push it
+  // back, the emptied frame — is walkable, so you can follow it.)
   const barSolids: Obstacle[] = [];
-  for (let x = FRAME_L + 1.2; x <= -FRAME_L + 0.4; x += 0.5) {
-    const o = { x, z: BAR_Z, radius: 0.55 };
-    ctx.addObstacle(o);
-    barSolids.push(o);
-  }
+  const solidOn = new Set<Obstacle>();
+  for (let x = FRAME_L + 1.2; x <= -FRAME_L + 0.4; x += 0.5) barSolids.push({ x, z: BAR_Z, radius: 0.55 });
+  const syncSolids = (fillRight: number) => {
+    for (const o of barSolids) {
+      const on = o.x < fillRight - 0.6;
+      if (on && !solidOn.has(o)) (ctx.addObstacle(o), solidOn.add(o));
+      else if (!on && solidOn.has(o)) (ctx.removeObstacle(o), solidOn.delete(o));
+    }
+  };
 
   // The percentage, over the bar.
   const pctSign = makeSign(root, 3.6, 1.1, new THREE.Vector3(0, BAR_H + 1.2, BAR_Z - 0.2));
@@ -137,6 +157,9 @@ export function revealLoadingScreen(ctx: GameContext): void {
 
   // ── State ──
   let loaded = false;
+  let saidReverse = false;
+  const fillRight = () => fillLeft + L;
+  syncSolids(fillRight());
   let tipIdx = 0;
   let tipT = 0;
   let pushQuiet = 0; // seconds since you last pushed
@@ -145,9 +168,11 @@ export function revealLoadingScreen(ctx: GameContext): void {
   let creak = 0;
   const prev = new THREE.Vector3().copy(cam);
   const progress = () => THREE.MathUtils.clamp((fillLeft - START_LEFT) / (FRAME_L - START_LEFT), 0, 1);
+  // Pushed back: 99% at the start, down to 0% when its right end leaves the frame.
+  const unloadedPct = () => THREE.MathUtils.clamp((99 * (fillRight() - FRAME_L)) / (START_LEFT + L - FRAME_L), 0, 99);
   let shownPct = '';
   const showPct = (text?: string) => {
-    const t = text ?? `${(99 + progress()).toFixed(progress() > 0 ? 1 : 0)}%`;
+    const t = text ?? (fillLeft < START_LEFT - 1e-3 ? `${Math.floor(unloadedPct())}%` : `${(99 + progress()).toFixed(progress() > 0 ? 1 : 0)}%`);
     if (t === shownPct) return; // redraw (and re-upload the texture) only on change
     shownPct = t;
     pctSign.draw([t], '#e8ecf2');
@@ -174,9 +199,17 @@ export function revealLoadingScreen(ctx: GameContext): void {
     });
     ctx.after(4200, () => {
       // It dissolves; the fog lifts; the way out was there all along.
-      for (const o of barSolids) ctx.removeObstacle(o);
+      dissolve(['LOADED.', 'You may now leave.']);
+    });
+  };
+
+  // The bar goes; the fog lifts; the way out was there all along.
+  const dissolve = (tip: string[]) => {
+    {
+      for (const o of [...solidOn]) ctx.removeObstacle(o);
+      solidOn.clear();
       ctx.setBounds(AFTER);
-      tipSign.draw(['LOADED.', 'You may now leave.'], '#dfe6ee');
+      tipSign.draw(tip, '#dfe6ee');
       let t = 0;
       addUpdater((dt) => {
         t = Math.min(1, t + dt / 1.6);
@@ -191,12 +224,40 @@ export function revealLoadingScreen(ctx: GameContext): void {
         }
         return false;
       });
+    }
+  };
+
+  // 0%: cancelled. The spinner stops and falls; where it lands, it's yours.
+  const unload = () => {
+    loaded = true;
+    fillMat.color.setHex(0x6a6d72);
+    fillMat.emissive.setHex(0x000000);
+    showPct('0%');
+    tipSign.draw(['LOADING CANCELLED.'], '#ffb0a0');
+    discover('mech:loading-bar');
+    ctx.narrate(UNLOADED, 6000, { priority: true });
+    const from = spinner.position.clone();
+    const land = new THREE.Vector3(from.x, 0.2, BAR_Z + 2.2); // in front of the bar, where you can walk
+    let t = 0;
+    addUpdater((dt) => {
+      t = Math.min(1, t + dt / 1.1);
+      spinner.position.lerpVectors(from, land, t * t);
+      spinner.rotation.z += dt * 2 * (1 - t);
+      spinner.scale.setScalar(Math.max(0.12, 1 - t * 0.88));
+      if (t < 1) return false;
+      root.remove(spinner);
+      pop();
+      spawnSpinner(ctx, land, {
+        onGrab: () => ctx.narrate(SPINNER_TAKEN, 6000, { priority: true }),
+      });
+      return true;
     });
+    ctx.after(2600, () => dissolve(['LOADING CANCELLED.', 'You may leave anyway.']));
   };
 
   addUpdater((dt) => {
-    // Spinner + sheen, forever (until it loads).
-    spinner.rotation.z -= dt * 3;
+    // Spinner + sheen, forever (until it loads, or unloads).
+    if (!loaded) spinner.rotation.z -= dt * 3;
     sheen.position.x = fillLeft + ((performance.now() / 1000) * 4 % L);
     if (loaded) return false;
 
@@ -215,7 +276,7 @@ export function revealLoadingScreen(ctx: GameContext): void {
     const inLane = Math.abs(p.z - BAR_Z) < BAR_HALF_Z + CONFIG.PLAYER_RADIUS;
     const limit = fillLeft - REACH;
     let pushed = false;
-    if (inLane && p.x > limit && p.x < FRAME_L + 1.2) {
+    if (inLane && p.x > limit && p.x < FRAME_L + 1.2 && p.x < fillRight()) {
       if (prev.x <= limit + 0.05) {
         // You walked into the stub from the left: the step moves it a little,
         // and you stay pressed against it.
@@ -227,6 +288,20 @@ export function revealLoadingScreen(ctx: GameContext): void {
         // Came at it from the side: back out of its lane, on the FRONT side (the
         // only walkable side), clear of the first bar solid.
         p.z = BAR_Z + BAR_HALF_Z + CONFIG.PLAYER_RADIUS + 0.45;
+      }
+    }
+    // The other end: from the right, into the fill's right face — it goes with
+    // every step (unloading is easy), and you follow it into the frame.
+    const rLimit = fillRight() + REACH;
+    if (!pushed && inLane && p.x < rLimit && p.x > fillRight() - 0.6 && prev.x >= rLimit - 0.05) {
+      const step = rLimit - p.x;
+      fillLeft -= step;
+      p.x = fillRight() + REACH;
+      pushed = step > 1e-4;
+      if (pushed && !saidReverse) {
+        saidReverse = true;
+        saidPush = true; // (its own line, not the forward one)
+        ctx.narrate(REVERSING, 5000, { priority: true });
       }
     }
     if (pushed) {
@@ -252,12 +327,15 @@ export function revealLoadingScreen(ctx: GameContext): void {
       }
     }
     placeFill();
+    syncSolids(fillRight());
     showPct();
     prev.copy(p);
     if (fillLeft >= FRAME_L - 1e-4) finish();
+    else if (fillRight() <= FRAME_L + 0.05) unload();
     return false;
   });
 
+  setScriptHints([TIPS[2], TIPS[TIPS.length - 1]]);
   ctx.narrate(INTRO, 6500);
 }
 
@@ -312,7 +390,7 @@ function makeSign(root: THREE.Object3D, w: number, h: number, at: THREE.Vector3)
     lines.forEach((line, i) => {
       let px = Math.floor(maxSize);
       do {
-        g.font = `bold ${px}px system-ui, sans-serif`;
+        g.font = `bold ${px}px ${FONT_SIGN}`;
       } while (g.measureText(line).width > cv.width - 40 && --px > 8);
       g.fillText(line, cv.width / 2, step * (i + 1));
     });

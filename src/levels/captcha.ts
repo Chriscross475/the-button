@@ -8,6 +8,7 @@ import { spawnPedestalButton } from '../button/pedestal-button';
 import { tone, noise, ensureAudio, click, sparkle } from '../audio/sfx';
 import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
+import { FONT_SIGN } from '../ui/fonts';
 
 // THE CAPTCHA — before you continue, a quick check. The room stays shut; on the
 // back wall, a giant "I'm not a robot" panel. Tick the box, and it wants more:
@@ -37,6 +38,7 @@ const INTRO = vo('Before you continue, a quick check. It is only a formality. Th
 const CHECKED = vo('You ticked the box. It was not enough. It is never enough.');
 const R_LINES = vo([
   'Ducks. You have met ducks. This should be easy.',
+  'Traffic lights. Of course. Every one of these has traffic lights.',
   'Trains. You have been hit by at least one. Probably.',
   'Regret. Take your time.',
   'Buttons. Select all the buttons. I will wait.',
@@ -46,6 +48,12 @@ const WRONG = vo([
   'Wrong. In fairness, it was a very ambiguous duck.',
   'Please try again. Nobody passes these first time. Nobody human.',
 ]);
+// Every wrong square selected, and not one right one: a perfect miss.
+const TOO_SMART = vo('Oh, you think you are smart? Every wrong square, and not a single right one. That is not a mistake. That is a skill. A deeply annoying skill. Please try again.');
+// The traffic-light round: there are none, anywhere in this game. Select nothing.
+const NO_LIGHTS = vo('There are no traffic lights in this game. There never were. There is not a single road. Select nothing. With confidence.');
+const LIGHTS_OK = vo('Nothing. Correct. There were never any traffic lights. You would be amazed how many people pick the train.');
+const REF_DUCK = vo('You brought your own duck. For reference. Nobody has ever brought a reference duck. Verified, obviously.');
 const REGRET_OK = vo('Correct. That is regret. It all is.');
 const HUMAN = vo('Verified. You are human. Mostly because you got some of them wrong. Off you go.');
 const ROBOT = vo('Too fast. Too accurate. Nobody human has ever selected every button first time. You are a robot. Robots may leave through the same button. We are not monsters.');
@@ -53,11 +61,13 @@ const ROBOT = vo('Too fast. Too accurate. Nobody human has ever selected every b
 type Pic = 'duck' | 'train' | 'wolf' | 'grandma' | 'dummy' | 'cactus' | 'button' | 'axe' | 'chalk' | 'saw';
 interface Round {
   word: string;
-  target: Pic | 'any' | 'all';
+  target: Pic | 'any' | 'all' | 'none';
   pool: Pic[]; // the distractors
 }
 const ROUNDS: Round[] = [
   { word: 'DUCKS', target: 'duck', pool: ['train', 'wolf', 'grandma', 'dummy', 'cactus', 'axe', 'button'] },
+  // The classic, in a game with no roads: the answer is none of them.
+  { word: 'TRAFFIC LIGHTS', target: 'none', pool: ['train', 'duck', 'cactus', 'wolf', 'button', 'dummy', 'axe', 'saw', 'grandma'] },
   { word: 'TRAINS', target: 'train', pool: ['duck', 'cactus', 'dummy', 'wolf', 'button', 'saw'] },
   { word: 'REGRET', target: 'any', pool: ['chalk', 'saw', 'duck', 'train', 'wolf', 'button', 'axe', 'grandma', 'dummy'] },
   { word: 'BUTTONS', target: 'all', pool: ['button'] },
@@ -110,7 +120,7 @@ export function revealCaptcha(ctx: GameContext): void {
     const r = ROUNDS[round];
     picked = new Set();
     if (r.target === 'all') tiles = Array(9).fill('button');
-    else if (r.target === 'any') tiles = shuffle(r.pool.slice()).slice(0, 9);
+    else if (r.target === 'any' || r.target === 'none') tiles = shuffle(r.pool.slice()).slice(0, 9);
     else {
       const n = 3 + Math.floor(Math.random() * 2); // 3–4 of the right thing
       tiles = [];
@@ -226,13 +236,25 @@ export function revealCaptcha(ctx: GameContext): void {
     const r = ROUNDS[round];
     let ok: boolean;
     if (r.target === 'any') ok = picked.size > 0;
+    else if (r.target === 'none') ok = picked.size === 0;
     else if (r.target === 'all') ok = picked.size === 9;
     else ok = tiles.every((t, i) => (t === r.target) === picked.has(i));
+    // Holding a real duck on the duck round: it is compared against the grid.
+    const refDuck = r.target === 'duck' && ctx.isHolding('duck');
+    if (refDuck) {
+      ok = true;
+      discover('reward:reference-duck');
+    }
     if (!ok) {
       mistakes++;
       buzz();
       message = 'Please try again.';
-      ctx.narrate(WRONG[wrongN++ % WRONG.length], 4500, { priority: true });
+      // The exact opposite of the answer, on purpose (or by a miracle).
+      const inverted = r.target !== 'any' && r.target !== 'all' && r.target !== 'none' && picked.size > 0 &&
+        tiles.every((t, i) => (t !== r.target) === picked.has(i));
+      if (r.target === 'none') ctx.narrate(NO_LIGHTS, 7000, { priority: true });
+      else if (inverted) ctx.narrate(TOO_SMART, 7000, { priority: true });
+      else ctx.narrate(WRONG[wrongN++ % WRONG.length], 4500, { priority: true });
       deal();
       ctx.after(2200, () => {
         if (message === 'Please try again.') {
@@ -243,12 +265,14 @@ export function revealCaptcha(ctx: GameContext): void {
       return;
     }
     chime();
-    if (r.target === 'any') ctx.narrate(REGRET_OK, 3500, { priority: true });
+    if (refDuck) ctx.narrate(REF_DUCK, 5500, { priority: true });
+    else if (r.target === 'any') ctx.narrate(REGRET_OK, 3500, { priority: true });
+    else if (r.target === 'none') ctx.narrate(LIGHTS_OK, 5500, { priority: true });
     round++;
     message = '';
     if (round < ROUNDS.length) {
-      if (r.target !== 'any') ctx.narrate(R_LINES[round], 4000, { priority: true });
-      else ctx.after(2600, () => ctx.narrate(R_LINES[round], 4000, { priority: true }));
+      if (r.target !== 'any' && r.target !== 'none' && !refDuck) ctx.narrate(R_LINES[round], 4000, { priority: true });
+      else ctx.after(refDuck ? 5600 : 2600, () => ctx.narrate(R_LINES[round], 4000)); // after the verdict line
       deal();
       return;
     }
@@ -364,7 +388,7 @@ function fitText(g: CanvasRenderingContext2D, text: string, x: number, y: number
   g.textBaseline = 'middle';
   let px = size;
   do {
-    g.font = `${weight} ${px}px system-ui, -apple-system, sans-serif`;
+    g.font = `${weight} ${px}px ${FONT_SIGN}`;
   } while (g.measureText(text).width > maxW && --px > 10);
   g.fillText(text, x, y);
 }

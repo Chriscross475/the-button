@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import { buildWhiteRoom, openWhiteRoom } from '../room/white-room';
 import { spawnPedestalButton, sinkPedestalButton } from '../button/pedestal-button';
 import { pickExperience } from '../experiences/registry';
+import { notifyRoomPress } from '../experiences/scheduler';
 import type { Level, LevelInstance, GameContext } from '../game/types';
 import type { Obstacle } from '../controls/player-camera';
 
@@ -21,6 +22,7 @@ export const hubLevel: Level = {
     // The button's action is mutable so an experience can REPURPOSE the button
     // (e.g. the duck level turns it into the dispenser) instead of sinking it.
     let buttonAction = () => {
+      notifyRoomPress();
       const e = pickExperience();
       if (e) e.run(ctx);
     };

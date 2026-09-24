@@ -5,6 +5,7 @@
 
 import { CONTENT_GRAPH, type GNode, type GEdge, type NodeKind, type EdgeKind } from './content-graph';
 import { discovered, isDiscovered, onProgress, resetProgress } from './progress';
+import { FONT_VOICE } from '../ui/fonts';
 
 const NS = 'http://www.w3.org/2000/svg';
 const el = <K extends keyof SVGElementTagNameMap>(t: K) => document.createElementNS(NS, t);
@@ -12,7 +13,7 @@ const byId = (id: string) => document.getElementById(id)!;
 
 // Tuned for the main menu's light, off-white card: deeper, calmer colours.
 const KIND_COLOR: Record<NodeKind, string> = {
-  level: '#3f6fb5', gag: '#7d6aa8', item: '#c98a1e', mechanic: '#23897d', reward: '#d4a216', fx: '#c96a6a',
+  level: '#3f6fb5', gag: '#7d6aa8', item: '#c98a1e', mechanic: '#23897d', reward: '#d4a216',
 };
 const EDGE_STYLE: Record<EdgeKind, { color: string; width: number; dash: string }> = {
   portal: { color: '#3f6fb5', width: 2.4, dash: '7 4' },
@@ -138,7 +139,7 @@ const nodeEls: NodeEls[] = nodes.map((n) => {
   q.setAttribute('font-size', '15'); q.setAttribute('font-weight', 'bold'); q.textContent = '?'; g.appendChild(q);
   const label = el('text'); label.setAttribute('text-anchor', 'middle'); label.setAttribute('font-size', '12');
   label.setAttribute('fill', INK); label.setAttribute('stroke', PAPER); label.setAttribute('stroke-width', '3.5');
-  label.setAttribute('paint-order', 'stroke'); label.setAttribute('font-family', 'Georgia, serif'); g.appendChild(label);
+  label.setAttribute('paint-order', 'stroke'); label.setAttribute('font-family', FONT_VOICE); g.appendChild(label);
   nodeLayer.appendChild(g);
   const ne: NodeEls = { g, circle, q, label, n };
   g.addEventListener('pointerdown', (ev) => startNodeDrag(ev, ne));
@@ -237,12 +238,25 @@ function select(id: string | null): void {
   const n = nodeById.get(id)!;
   const conns = adj.get(id) ?? [];
   if (seen(id)) {
-    const lines = conns.map((e) => {
+    // Found connections say how they work. Undiscovered ones only hint at what
+    // kind of thing waits there, grouped — never how you get to it.
+    const lines: string[] = [];
+    const hidden = new Map<string, number>(); // "dir|kind" → count
+    for (const e of conns) {
       const otherId = e.from === id ? e.to : e.from;
       const dir = e.from === id ? '→' : '←';
-      const other = seen(otherId) ? nodeById.get(otherId)!.label : '???';
-      return `<div>${dir} <b>${other}</b> <span class="how">· ${e.label ?? e.kind}</span></div>`;
-    });
+      if (seen(otherId)) {
+        lines.push(`<div>${dir} <b>${nodeById.get(otherId)!.label}</b> <span class="how">· ${e.label ?? e.kind}</span></div>`);
+      } else {
+        const k = `${dir}|${nodeById.get(otherId)!.kind}`;
+        hidden.set(k, (hidden.get(k) ?? 0) + 1);
+      }
+    }
+    for (const [k, count] of hidden) {
+      const [dir, kind] = k.split('|');
+      const what = count === 1 ? `${kind === 'item' ? 'an' : 'a'} ${kind}` : `${count} ${kind}s`;
+      lines.push(`<div class="mystery">${dir} <b>???</b> <span class="how">· ${what}</span></div>`);
+    }
     panel.innerHTML =
       `<div class="kind" style="color:${KIND_COLOR[n.kind]}">${n.kind}</div>` +
       `<h2>${n.label}</h2><div class="note">${n.note ?? ''}</div>` +
@@ -282,7 +296,7 @@ onProgress(() => { updateCount(); if (focusId) select(focusId); render(); });
 // legend
 (() => {
   const kinds: [NodeKind, string][] = [['level', 'Level'], ['gag', 'Gag'], ['item', 'Item'],
-    ['mechanic', 'Mechanic'], ['reward', 'Reward'], ['fx', 'Effect']];
+    ['mechanic', 'Mechanic'], ['reward', 'Reward']];
   const edgeKinds: [EdgeKind, string][] = [['portal', 'walk between'], ['combine', 'combine'],
     ['makes', 'makes'], ['reward', 'reward'], ['spawns', 'spawns'], ['enables', 'unlocks'],
     ['controls', 'controls'], ['shields', 'shields vs train']];

@@ -120,6 +120,7 @@ const ctxBase: any = {
   isHolding: () => false,
   isDead: () => false,
   isAirborne: () => false,
+  moveInput: () => ({ x: 0, y: 0 }),
   heldKind: () => null,
   inHand: () => null,
 };
@@ -185,7 +186,7 @@ for (const exp of allExperiences()) {
     narrate: stub, after: stub, goToLevel: stub, returnToHub: stub, advance: stub,
     advanceTo: stub, spawnAt: stub, openRoom: stub, setRoomButton: stub, sinkRoomButton: stub,
     spawnButton: stub, setBounds: stub, setRegions: stub, addObstacle: stub, removeObstacle: stub,
-    setLanding: stub, setFlightWalls: stub, launchPlayer: stub, die: stub, isAirborne: stub,
+    setLanding: stub, setFlightWalls: stub, launchPlayer: stub, die: stub, isAirborne: stub, moveInput: stub, setJump: stub,
     isDead: stub, addCarryable: stub, removeCarryable: stub, addTarget: stub, removeTarget: stub,
     isHolding: stub, consumeHeld: stub, heldKind: stub, putInHand: stub, launchProjectile: stub,
     useTrainShield: stub, setCompanion: stub, setScoringHoop: stub, setWheel: stub, setControlMode: stub,

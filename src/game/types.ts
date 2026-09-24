@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { RoomBounds, Obstacle } from '../controls/player-camera';
+import type { RoomBounds, Obstacle, JumpOpts } from '../controls/player-camera';
 import type { Carryable, CombineTarget } from './combine';
 import type { InputState } from '../controls/input-types';
 
@@ -147,8 +147,15 @@ export interface PhysicsCtx {
   die: (cause?: string, wallHit?: { pos: THREE.Vector3; dir: THREE.Vector3 }) => void;
   /** True while the player is mid-flight (post-launch). */
   isAirborne: () => boolean;
+  /** The walk input right now (stick / WASD): x = strafe, y = forward is
+   *  NEGATIVE, each in [-1..1]. For "is the player pushing into something". */
+  moveInput: () => { x: number; y: number };
   /** True while dead (awaiting restart). */
   isDead: () => boolean;
+  /** Turn jumping on for this level (Space / the touch JUMP button), with real
+   *  vertical physics — falling off edges, landing on what's below — or null for
+   *  the normal snap-to-floor walk. Reset on every level load. */
+  setJump: (opts: JumpOpts | null) => void;
 }
 
 /** Carry & combine (the GLOBAL dual-hand carry). */

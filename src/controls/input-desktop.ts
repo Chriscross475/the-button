@@ -55,6 +55,12 @@ export const desktopScheme: InputScheme = {
     window.addEventListener('keydown', (e) => {
       if (!e.repeat) codesDown.add(e.code);
       if (e.repeat) return;
+      if (e.code === 'Space' && options.jumpEnabled?.()) {
+        e.preventDefault();
+        fireFirst();
+        state.jump = true;
+        return;
+      }
       if (e.code === 'KeyE' || e.code === 'Space') {
         e.preventDefault();
         fireFirst();

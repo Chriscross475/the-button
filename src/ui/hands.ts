@@ -1,3 +1,4 @@
+import { FONT_VOICE } from './fonts';
 // Bottom-of-screen HUD labels for what each hand is carrying — one by the left
 // hand, one by the right, so the text sits "beside" each arm.
 
@@ -23,7 +24,7 @@ function ensure(side: 'left' | 'right'): HTMLDivElement {
     'bottom:46px',
     side === 'left' ? 'left:34px' : 'right:34px',
     side === 'left' ? 'text-align:left' : 'text-align:right',
-    'font-family:Georgia,"Times New Roman",serif',
+    `font-family:${FONT_VOICE}`,
     'font-size:15px',
     'letter-spacing:0.16em',
     'text-transform:uppercase',

@@ -27,6 +27,46 @@ import { captcha } from './captcha';
 import { queue } from './queue';
 import { giftShop } from './gift-shop';
 import { lostFound } from './lost-found';
+import { gameShow } from './game-show';
+import { vending } from './vending';
+import { selfCheckout } from './self-checkout';
+import { escapeRoom } from './escape-room';
+import { tinyButton } from './tiny-button';
+import { elevatorMusic } from './elevator-music';
+import { wrongNarrator } from './wrong-narrator';
+import { fakeCrash } from './fake-crash';
+import { credits } from './credits';
+import { plant } from './plant';
+import { painting } from './painting';
+import { tally } from './tally';
+import { trolley } from './trolley';
+import { marshmallow } from './marshmallow';
+import { cave } from './cave';
+import { courtroom } from './courtroom';
+
+import { sisyphus } from './sisyphus';
+
+import { schrodinger } from './schrodinger';
+
+import { onlyUp } from './only-up';
+
+import { youAreButton } from './you-are-button';
+
+import { timeLoop } from './time-loop';
+
+import { microverse } from './microverse';
+
+import { infomercial } from './infomercial';
+
+import { multiverse } from './multiverse';
+
+import { wedding } from './wedding';
+
+import { portaLoo } from './porta-loo';
+
+import { nightShift } from './night-shift';
+
+import { familyDinner } from './family-dinner';
 
 export function registerAllExperiences(): void {
   // Levels (entered via the in-place reveal, each with its own resolution).
@@ -49,10 +89,38 @@ export function registerAllExperiences(): void {
   registerExperience(queue);
   registerExperience(giftShop);
   registerExperience(lostFound);
+  registerExperience(gameShow);
+  registerExperience(vending);
+  registerExperience(selfCheckout);
+  registerExperience(escapeRoom);
+  registerExperience(trolley);
+  registerExperience(marshmallow);
+  registerExperience(cave);
+  registerExperience(courtroom);
+  registerExperience(sisyphus);
+  registerExperience(schrodinger);
+  registerExperience(onlyUp);
+  registerExperience(youAreButton);
+  registerExperience(timeLoop);
+  registerExperience(microverse);
+  registerExperience(infomercial);
+  registerExperience(multiverse);
+  registerExperience(wedding);
+  registerExperience(portaLoo);
+  registerExperience(nightShift);
+  registerExperience(familyDinner);
   // In-room gags (trivial resolution — they just happen; press again).
   registerExperience(anotherButton);
   registerExperience(statue);
   registerExperience(confetti);
   registerExperience(colorFlash);
   registerExperience(nothing);
+  registerExperience(tinyButton);
+  registerExperience(elevatorMusic);
+  registerExperience(wrongNarrator);
+  registerExperience(fakeCrash);
+  registerExperience(credits);
+  registerExperience(plant);
+  registerExperience(painting);
+  registerExperience(tally);
 }

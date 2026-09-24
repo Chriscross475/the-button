@@ -11,10 +11,11 @@ import { createAsset } from '../assets';
 //
 //   blue — the corridor of doors (behind you at the start); opens its last door.
 //   red  — the desert (behind the exit cabin); opens grandma's cottage
+//   yellow — the lift's hidden floor 13; opens the museum's STAFF ONLY door
 //          in the forest.
 
-export type KeyColor = 'red' | 'blue';
-export const KEY_COLORS: Record<KeyColor, number> = { red: 0xd23a2a, blue: 0x2f6fd6 };
+export type KeyColor = 'red' | 'blue' | 'yellow';
+export const KEY_COLORS: Record<KeyColor, number> = { red: 0xd23a2a, blue: 0x2f6fd6, yellow: 0xe8c21e };
 export const keyKind = (c: KeyColor) => `key-${c}`;
 
 /** Put a coloured key into the level at `pos`. */

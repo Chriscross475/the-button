@@ -10,6 +10,10 @@ import { playLevelMusic, type LevelMusic } from '../audio/music';
 import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
 import { spawnDuck } from '../objects/duck';
+import { spawnCoin } from '../objects/coin';
+import { spinnerSpeed } from '../objects/spinner';
+import { setScriptHints } from '../objects/script';
+import { FONT_SIGN, FONT_VOICE } from '../ui/fonts';
 
 // CUSTOMER SUPPORT — the white room is an office: a desk, a chair, a poster, and
 // a phone. Pick up the receiver and you're in the automated menu, chirpy and
@@ -40,7 +44,15 @@ const DUCK_NOW = vo('A duck has been dispatched. Thank you for choosing ducks.')
 const DREAD = vo('You have selected: existential dread. Please hold.');
 const DREAD_DONE = vo('Thank you for holding. Your dread has been escalated to a senior dread. Returning you to the main menu.');
 const TRAINS = vo('Trains. Please stand clear of the keypad.');
-const BILLING = vo('Billing. Your balance is: one button. To pay, press the button. To dispute, press any key.');
+const BILLING = vo('Billing. Your balance is: one button. For a refund, press one. To dispute, press any other key.');
+const REFUND = vo('Your refund has been processed. Please collect your change from the desk. Returning you to the main menu.');
+const REFUND_AGAIN = vo('You have already been refunded. We have a note. Returning you to the main menu.');
+const N_REFUND = vo('It refunded you. In coins. On the desk. For a button you never bought. Take them before it notices.');
+const N_SPUN = vo('The spinner. The hold is going faster. Everything that makes you wait is scared of it.');
+const SCRIPT_NOTES = vo([
+  'Page nine. Zero. Press zero, from any menu. It never says so. Everyone knows about zero.',
+  'Page ten. Billing, then one, is a refund. In coins. It is the only thing in here that pays.',
+]);
 const DISPUTE = vo('Your dispute has been noted, and discarded. Returning you to the main menu.');
 const INVALID = vo('That is not an option. That has never been an option.');
 const RETURN = vo('Returning you to the main menu.');
@@ -52,6 +64,7 @@ const INTRO = vo('An office. A desk. A phone. Somewhere in this building, there 
 const PICK_UP_FIRST = vo('It helps to pick up the phone first. I am told.');
 const NO_ZERO = vo('It never mentions zero. It never mentions zero. Everyone knows about zero.');
 const HUNG_UP = vo('You hung up. They will not call back. They never call back.');
+const IDLE_PHONE = vo('The phone. On the desk. Pick up the receiver. It is the only thing in here that talks back.');
 const HUMAN = vo('Hello. Yes. It is me. It was always going to be me. There are no other humans. What do you want. Fine. There is a button behind you. Press it, and please do not call again.');
 
 // Keypad cells: 0–8 are 1–9, then * 0 #. 12 is the receiver.
@@ -96,11 +109,33 @@ export function revealCustomerSupport(ctx: GameContext): void {
   box(2.2, 0.06, 1.0, 0, DESK_TOP - 0.03, 0, wood, desk);
   for (const x of [-1.0, 1.0]) box(0.12, DESK_TOP - 0.06, 0.9, x, (DESK_TOP - 0.06) / 2, 0, grey, desk);
   box(2.0, 0.5, 0.04, 0, 0.45, -0.45, grey, desk); // modesty panel
-  for (const x of [-0.7, 0, 0.7]) ctx.addObstacle({ x: DESK.x + x, z: DESK.z, radius: 0.55 });
+  const solids: { x: number; z: number; radius: number }[] = [];
+  const solid = (o: { x: number; z: number; radius: number }) => {
+    ctx.addObstacle(o);
+    solids.push(o);
+  };
+  // Anything solid that ends up over you (the desk, built where you stood; the
+  // exit button) pushes you clear: overlapping an obstacle blocks every move.
+  const unstick = () => {
+    const c = ctx.camera.position;
+    for (let pass = 0; pass < 4; pass++) {
+      for (const o of solids) {
+        const need = o.radius + CONFIG.PLAYER_RADIUS + 0.02;
+        const d = Math.hypot(c.x - o.x, c.z - o.z);
+        if (d >= need) continue;
+        const nx = d > 1e-4 ? (c.x - o.x) / d : 0;
+        const nz = d > 1e-4 ? (c.z - o.z) / d : 1;
+        c.x = o.x + nx * need;
+        c.z = o.z + nz * need;
+      }
+    }
+  };
+  for (const x of [-0.7, 0, 0.7]) solid({ x: DESK.x + x, z: DESK.z, radius: 0.55 });
   // A chair behind it (nobody in it) and a monitor that is off.
   box(0.5, 0.08, 0.5, 0, 0.48, -0.9, grey, desk);
   box(0.5, 0.6, 0.06, 0, 0.8, -1.12, grey, desk);
-  ctx.addObstacle({ x: DESK.x, z: DESK.z - 0.9, radius: 0.35 });
+  solid({ x: DESK.x, z: DESK.z - 0.9, radius: 0.35 });
+  unstick();
   box(0.7, 0.45, 0.05, -0.55, DESK_TOP + 0.3, -0.3, new THREE.MeshStandardMaterial({ color: 0x111114, roughness: 0.3 }), desk);
   box(0.1, 0.1, 0.1, -0.55, DESK_TOP + 0.05, -0.3, grey, desk);
 
@@ -124,7 +159,7 @@ export function revealCustomerSupport(ctx: GameContext): void {
   pg.textAlign = 'center';
   const fit = (text: string, px: number, y: number) => {
     let s = px;
-    do pg.font = `bold ${s}px Georgia, serif`;
+    do pg.font = `bold ${s}px ${FONT_VOICE}`;
     while (pg.measureText(text).width > 220 && --s > 10);
     pg.fillText(text, 128, y);
   };
@@ -168,7 +203,7 @@ export function revealCustomerSupport(ctx: GameContext): void {
     g.fillStyle = '#e8e6df';
     g.fillRect(0, 0, 64, 64);
     g.fillStyle = '#1a1a1a';
-    g.font = 'bold 40px sans-serif';
+    g.font = `bold 40px ${FONT_SIGN}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText(label, 32, 34);
@@ -257,6 +292,8 @@ export function revealCustomerSupport(ctx: GameContext): void {
   let dreadT = 0;
   let speakToken = 0;
   let saidHungUp = false;
+  let idleT = 0;
+  let saidIdle = false;
 
   // The menu talks: the music ducks under it and comes back after. `urgent`:
   // a direct reply to a key press cuts in at once; the automatic follow-ups
@@ -365,7 +402,8 @@ export function revealCustomerSupport(ctx: GameContext): void {
       if (Math.hypot(at.x - DESK.x, at.z - DESK.z) < 2) at.z = DESK.z + 2.2;
       if (Math.hypot(at.x - p.x, at.z - p.z) < 1.2) at.x += at.x > 0 ? -1.4 : 1.4;
       const btn = spawnPedestalButton(root, at, () => ctx.advance(at), { glow: false });
-      ctx.addObstacle(btn.obstacle);
+      solid(btn.obstacle);
+      unstick();
       sparkle();
       duck(false);
     });
@@ -373,6 +411,7 @@ export function revealCustomerSupport(ctx: GameContext): void {
 
   const pickUp = () => {
     onLine = true;
+    saidIdle = true;
     discover('mech:phone-menu');
     receiver.position.set(-0.2, 0.5, 0.25);
     receiver.rotation.set(-0.6, 0, 0.3);
@@ -462,10 +501,22 @@ export function revealCustomerSupport(ctx: GameContext): void {
       return;
     }
     if (menu === 'billing') {
-      back(DISPUTE, 4500); // any key is a dispute
+      if (key === '1') {
+        // A refund: three coins onto the desk, once.
+        if (refunded) return back(REFUND_AGAIN, 4000);
+        refunded = true;
+        for (let i = 0; i < 3; i++) spawnCoin(ctx, new THREE.Vector3(DESK.x - 0.35 + i * 0.12, DESK_TOP + 0.01, DESK.z + 0.3));
+        pop();
+        back(REFUND, 5000);
+        ctx.narrate(N_REFUND, 5000);
+        return;
+      }
+      back(DISPUTE, 4500); // any other key is a dispute
     }
   };
 
+  let refunded = false;
+  let saidSpun = false;
   customerSupportTest.press = press;
   customerSupportTest.menu = () => (onLine ? menu : 'idle');
 
@@ -481,6 +532,13 @@ export function revealCustomerSupport(ctx: GameContext): void {
     if (sel === RECEIVER) receiver.getWorldPosition(use.position);
     else if (sel >= 0) keyMeshes[sel].getWorldPosition(use.position);
 
+    if (!onLine && !saidIdle && menu === 'main') {
+      idleT += dt;
+      if (idleT > 25) {
+        saidIdle = true;
+        ctx.narrate(IDLE_PHONE, 5000);
+      }
+    }
     if (menu === 'dread' && onLine) {
       dreadT += dt;
       if (dreadT > 5.5) {
@@ -489,7 +547,13 @@ export function revealCustomerSupport(ctx: GameContext): void {
       }
     }
     if (menu === 'hold' && onLine) {
-      holdT += dt;
+      // Hold time: shorter with the Spinner in hand.
+      const sp = spinnerSpeed(ctx);
+      if (sp > 1 && !saidSpun) {
+        saidSpun = true;
+        ctx.narrate(N_SPUN, 4500);
+      }
+      holdT += dt * sp;
       if (holdT > HOLD_SECS * 0.55 && !saidImportant) {
         saidImportant = true;
         ctx.narrate(HOLD_IMPORTANT, 3500); // queued: after the hold message
@@ -499,5 +563,6 @@ export function revealCustomerSupport(ctx: GameContext): void {
     return false;
   });
 
+  setScriptHints(SCRIPT_NOTES);
   ctx.narrate(INTRO, 6000);
 }

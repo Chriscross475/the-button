@@ -22,6 +22,7 @@ import { discover } from '../graph/progress';
 // lob it. Where it lands decides its fate, and the narrator judges you for it.
 
 const QUOTA = 15;
+const DISPENSE_HINT = vo('The button makes ducks now. Fifteen, apparently. Nobody asked why. Keep pressing.');
 const DUCK_RADIUS = 0.2;
 
 // Wander tuning (room ducks).
@@ -880,6 +881,15 @@ export function revealDucks(ctx: GameContext): void {
   };
   ctx.setRoomButton(dispense); // the recurring button is now the dispenser
   dispense(); // the press that started the level drops the first duck
+  // Still on the first duck after a while: say what the button does now (once).
+  let idleT = 0;
+  addUpdater((dt) => {
+    if (!active || count > 1) return true;
+    idleT += dt;
+    if (idleT < 9) return false;
+    ctx.narrate(DISPENSE_HINT, 4500);
+    return true;
+  });
 }
 
 // ── A cute duck model: yellow body + head, orange beak, white eyes with black

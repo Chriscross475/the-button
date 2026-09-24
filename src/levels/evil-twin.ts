@@ -7,6 +7,8 @@ import { setCounter, hideCounter } from '../ui/counter';
 import { tone, noise, ensureAudio, whoosh, fanfare, sadTrombone, sparkle } from '../audio/sfx';
 import { vo } from '../audio/vo-shared';
 import { discover } from '../graph/progress';
+import { FONT_VOICE, FONT_SIGN } from '../ui/fonts';
+import { uvInk } from '../objects/uv-torch';
 
 // THE BUTTON'S EVIL TWIN — two identical red buttons. One sign says THIS ONE,
 // the other NOT THIS ONE, and the narrator tells you which to press. He is
@@ -39,6 +41,7 @@ const RIGHT_LINES = vo(['Hm. Correct. Lucky.', 'That one, yes. I meant that one.
 const WRONG_LINES = vo(['Wrong one. Obviously. Did you not trust me?', 'No. That was the evil one. The other one was also evil, but less.', 'Buzz. Do try listening.']);
 const HINT_1 = vo('I do say trust me quite a lot, do I not.');
 const HINT_2 = vo('Here is a free one. When I say trust me, do not. There. I have said it. Trust me.');
+const UV_CHEAT = vo('You checked them with a torch. That is cheating. It is also correct. I will allow it.');
 const SOLVED = vo('Three in a row. You worked out that I lie. Most people just assume it. A third button, then. It does exactly what it says. Trust me.');
 
 type Side = 0 | 1; // 0 = left spot, 1 = right spot
@@ -101,7 +104,7 @@ export function revealEvilTwin(ctx: GameContext): void {
   };
 
   // ── The twins: two identical buttons, each with a sign on a little post ──
-  interface Twin { btn: SpawnedButton; side: Side; sign: { draw: (text: string) => void; group: THREE.Group }; label: 'yes' | 'no' }
+  interface Twin { btn: SpawnedButton; side: Side; sign: { draw: (text: string) => void; group: THREE.Group }; label: 'yes' | 'no'; ink: (real: boolean) => void }
   const twins: Twin[] = [];
   const makeTwin = (side: Side): Twin => {
     const twin = {} as Twin;
@@ -110,6 +113,26 @@ export function revealEvilTwin(ctx: GameContext): void {
     twin.side = side;
     twin.sign = buildSign(root);
     twin.label = side === 0 ? 'yes' : 'no';
+    // UV ink on the back of its sign board's face: under the torch it says
+    // which one is real this round (redrawn every round).
+    const cv = document.createElement('canvas');
+    cv.width = 256;
+    cv.height = 96;
+    const tex = new THREE.CanvasTexture(cv);
+    const ink = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.22), new THREE.MeshBasicMaterial({ map: tex, transparent: true }));
+    ink.position.set(0, 1.86, 0.02); // just above the board, on its own plane
+    twin.sign.group.add(ink);
+    uvInk(ink);
+    twin.ink = (real) => {
+      const g = cv.getContext('2d')!;
+      g.clearRect(0, 0, 256, 96);
+      g.fillStyle = real ? '#b8ff5a' : '#ff5ad2';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.font = `bold 64px ${FONT_SIGN}`;
+      g.fillText(real ? 'REAL' : 'EVIL', 128, 50);
+      tex.needsUpdate = true;
+    };
     return twin;
   };
   twins.push(makeTwin(0), makeTwin(1));
@@ -121,6 +144,19 @@ export function revealEvilTwin(ctx: GameContext): void {
     t.sign.group.position.set(x, 0, z - 0.5); // just behind its button, readable over the dome
   };
   for (const t of twins) place(t, SPOTS[t.side].x, SPOTS[t.side].z);
+  // A moving button that reaches you pushes you aside: overlapping an obstacle
+  // would otherwise block every move (you'd be stuck inside it for good).
+  const shove = (o: { x: number; z: number; radius: number }) => {
+    const c = ctx.camera.position;
+    const need = o.radius + CONFIG.PLAYER_RADIUS + 0.02;
+    const d = Math.hypot(c.x - o.x, c.z - o.z);
+    if (d >= need) return;
+    const nx = d > 1e-4 ? (c.x - o.x) / d : 0;
+    const nz = d > 1e-4 ? (c.z - o.z) / d : 1;
+    c.x = o.x + nx * need;
+    c.z = o.z + nz * need;
+  };
+  for (const t of twins) shove(t.btn.obstacle); // built where you may be standing
   const relabel = () => {
     for (const t of twins) t.sign.draw(t.label === 'yes' ? 'THIS ONE' : 'NOT THIS ONE');
   };
@@ -132,6 +168,7 @@ export function revealEvilTwin(ctx: GameContext): void {
   let busy = true;
   let correct: Twin = twins[0];
   let solved = false;
+  let uvSaid = false;
   const hud = () => setCounter(`RIGHT IN A ROW  ${streak} / ${NEED}`);
 
   // A new round: redecorate, shuffle (maybe), swap the signs (maybe), and he
@@ -146,6 +183,7 @@ export function revealEvilTwin(ctx: GameContext): void {
     const finish = () => {
       correct = twins[Math.random() < 0.5 ? 0 : 1];
       evilTwinTest.correctX = SPOTS[correct.side].x;
+      for (const tw of twins) tw.ink(tw === correct);
       const lie = Math.random() < 0.5;
       const target = lie ? twins.find((t) => t !== correct)! : correct;
       const byLabel = Math.random() < 0.5;
@@ -169,6 +207,7 @@ export function revealEvilTwin(ctx: GameContext): void {
         const p = from[i].clone().lerp(to[i], e);
         p.z += Math.sin(e * Math.PI) * (i === 0 ? 0.9 : -0.9); // pass each other front/back
         place(tw, p.x, p.z);
+        shove(tw.btn.obstacle);
       });
       if (t < 1) return false;
       for (const tw of twins) tw.side = (1 - tw.side) as Side;
@@ -182,6 +221,12 @@ export function revealEvilTwin(ctx: GameContext): void {
     busy = true;
     if (t === correct) {
       streak++;
+      const cheated = ctx.isHolding('uv-torch') && !uvSaid;
+      if (cheated) {
+        uvSaid = true;
+        discover('reward:twin-uv');
+        ctx.narrate(UV_CHEAT, 5000, { priority: true });
+      }
       ding();
       sparkle();
       hud();
@@ -189,7 +234,7 @@ export function revealEvilTwin(ctx: GameContext): void {
         solve();
         return;
       }
-      ctx.narrate(RIGHT_LINES[(streak - 1) % RIGHT_LINES.length], 3000, { priority: true });
+      if (!cheated) ctx.narrate(RIGHT_LINES[(streak - 1) % RIGHT_LINES.length], 3000, { priority: true });
       ctx.after(2200, newRound);
     } else {
       streak = 0;
@@ -275,7 +320,7 @@ function buzzer(): void {
 function fitText(g: CanvasRenderingContext2D, text: string, style: string, size: number, x: number, y: number, maxW: number, color: string): void {
   let px = size;
   do {
-    g.font = `${style} ${px}px Georgia, serif`;
+    g.font = `${style} ${px}px ${FONT_VOICE}`;
   } while (g.measureText(text).width > maxW && --px > 10);
   g.fillStyle = color;
   g.textAlign = 'center';
