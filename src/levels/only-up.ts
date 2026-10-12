@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import type { GameContext } from '../game/types';
 import type { RoomBounds } from '../controls/player-camera';
-import { isGrounded } from '../controls/player-camera';
+import { isGrounded, floorYAt, getYaw } from '../controls/player-camera';
+import type { ControlMode } from '../game/types';
 import { CONFIG } from '../config';
 import { addUpdater } from '../experiences/scheduler';
-import { hideRoomShell, groundPlane } from './scaffold';
+import { hideRoomShell, groundPlane, walkThroughPortal } from './scaffold';
+import { registerInteractable } from '../interactables/system';
 import { spawnPedestalButton } from '../button/pedestal-button';
 import { createAsset } from '../assets';
 import { vo } from '../audio/vo-shared';
-import { thud, fanfare, whoosh } from '../audio/sfx';
+import { thud, fanfare, whoosh, click, sparkle } from '../audio/sfx';
 import { discover } from '../graph/progress';
 
 // ONLY UP. The walls fall, the ceiling floats off, and above you a tower of the
@@ -22,7 +24,7 @@ import { discover } from '../graph/progress';
 // the headless climb in the scratchpad sim). Falling never kills you: you land on
 // whatever is below, which is the joke. The Spinner, held, makes you drift down.
 
-const JUMP = { speed: 6.0, gravity: 20, step: 0.35 }; // apex 0.9 m; ledges catch up to ~1.25 m
+export const JUMP = { speed: 6.6, gravity: 20, step: 0.35 }; // apex ~1.1 m; ledges catch up to ~1.45 m
 const LONG_FALL = 10;
 
 const INTRO = vo('Oh, we are doing this. Only up. Space to jump, or the big JUMP button if you are on a phone. The button is at the top. Do not look down. Actually, look down. It is funny.');
@@ -41,9 +43,21 @@ const MILESTONES = vo([
   'Forty metres. I can see the button. It can see you. It is nervous.',
 ]);
 const FLOAT = vo('The spinner. You are drifting. That is not flying. That is falling, politely.');
+const LEDGES = vo([
+  'A ledge. Have a sit. The lift will remember this floor, even if your legs would rather not.',
+  'Another ledge. The lift knows this floor now. It is not impressed, but it knows it.',
+  'The last ledge. From here it is just you, the sky, and some plumbing.',
+]);
+const LIFT_RIDE = vo('The service lift. Staff only. You are not staff. Going up.');
+const LIFT_NONE = vo('It only goes to floors you have already been to. You have been to the ground floor. Congratulations.');
+const EASY_OUT = vo('There is a door at the bottom now. For people like you. No summit, naturally. Nobody will think less of you. I will. But nobody else.');
 const TOP = vo('You made it. Forty-odd metres of other people’s furniture. Press it. Chat, he is pressing it.');
 
-type Prop = 'crates' | 'vending' | 'trolley' | 'beam' | 'desk' | 'pedestal' | 'sofa' | 'lift' | 'ladder' | 'duck' | 'pipe' | 'bench' | 'top';
+const LIFT_AT = new THREE.Vector3(-8, 0, 1); // the service lift, at the foot of the tower
+const DOOR_AT = new THREE.Vector3(-8, 0, -5); // the door for people like you (after 3 big falls)
+const QUIT_FALLS = 3;
+
+type Prop = 'crates' | 'vending' | 'trolley' | 'beam' | 'desk' | 'pedestal' | 'sofa' | 'lift' | 'ladder' | 'duck' | 'pipe' | 'bench' | 'ledge' | 'top';
 type Dir = 0 | 1 | 2 | 3; // −z, +x, +z, −x
 
 interface Plat {
@@ -66,32 +80,82 @@ const OPENING: Step[] = [
   [0, 1.2, 1.2, 1.0, 0.7, 'crates'],
   [0, 0.9, 1.1, 1.0, 0.8, 'vending'],
 ];
-// One lap of the spiral (+x, +z, −x, −z legs); repeated, tightening and getting
-// meaner, lap by lap.
-const LAP: Step[] = [
-  [1, 3.0, 1.6, 1.1, 0.6, 'trolley'],
-  [1, 1.4, 1.4, 1.2, 0.9, 'crates'],
-  [1, 3.2, 0.45, 0.7, 0.3, 'beam'],
-  [1, 1.6, 1.0, 0.6, 0.9, 'desk'],
-  [2, 1.2, 1.2, 1.2, 0.9, 'pedestal'],
-  [2, 2.0, 1.0, 1.0, 0.8, 'sofa'],
-  [2, 1.4, 1.4, 1.3, 0.2, 'crates'],
-  [2, 1.5, 1.5, 1.0, 1.0, 'lift'],
-  [3, 3.0, 0.6, 0.8, 0.4, 'ladder'],
-  [3, 1.8, 1.8, 0.9, 0.8, 'duck'],
-  [3, 1.2, 1.2, 1.0, 1.0, 'crates'],
-  [3, 2.8, 0.6, 0.9, 0.2, 'pipe'],
-  [0, 1.4, 1.4, 0.9, 1.0, 'vending'],
-  [0, 1.2, 1.2, 1.1, 0.9, 'bench'],
-  [0, 1.6, 1.6, 1.2, 0.5, 'crates'],
+// Four DIFFERENT laps (+x, +z, −x, −z legs each), so the climb never repeats
+// itself: each has its own junk and its own rhythm. Every lap ends on a wide
+// LEDGE — a checkpoint the service lift can take you back up to.
+const LAPS: Step[][] = [
+  // 1 · The warehouse: wide crates, the tram, vending machines. Steady steps.
+  [
+    [1, 3.0, 1.6, 0.9, 0.5, 'trolley'],
+    [1, 1.4, 1.4, 0.9, 0.7, 'crates'],
+    [1, 1.4, 1.4, 1.0, 0.8, 'crates'],
+    [2, 1.2, 1.2, 1.0, 0.8, 'vending'],
+    [2, 1.6, 1.6, 0.8, 0.6, 'crates'],
+    [2, 1.2, 1.2, 1.0, 0.9, 'vending'],
+    [2, 1.4, 1.4, 0.9, 0.7, 'crates'],
+    [3, 3.0, 1.6, 0.9, 0.5, 'trolley'],
+    [3, 1.4, 1.4, 1.0, 0.8, 'crates'],
+    [3, 1.2, 1.2, 0.9, 0.9, 'pedestal'],
+    [3, 1.4, 1.4, 1.0, 0.7, 'crates'],
+    [0, 1.2, 1.2, 1.0, 0.9, 'vending'],
+    [0, 1.4, 1.4, 0.9, 0.8, 'crates'],
+    [0, 2.6, 2.6, 1.0, 0.8, 'ledge'],
+  ],
+  // 2 · The office: a staccato of little desk hops, then a big climb to a lift.
+  [
+    [1, 1.2, 1.0, 0.6, 0.3, 'desk'],
+    [1, 1.2, 1.0, 0.6, 0.3, 'desk'],
+    [1, 1.2, 1.0, 0.6, 0.3, 'desk'],
+    [1, 1.5, 1.5, 0.9, 1.0, 'lift'],
+    [2, 2.0, 1.0, 0.9, 0.7, 'sofa'],
+    [2, 1.2, 1.2, 1.0, 0.9, 'pedestal'],
+    [2, 1.2, 1.0, 0.6, 0.3, 'desk'],
+    [2, 1.2, 1.0, 0.6, 0.3, 'desk'],
+    [2, 1.5, 1.5, 0.9, 1.0, 'lift'],
+    [3, 2.0, 1.0, 0.9, 0.7, 'sofa'],
+    [3, 1.2, 1.2, 1.0, 0.9, 'bench'],
+    [3, 1.2, 1.0, 0.6, 0.3, 'desk'],
+    [3, 1.5, 1.5, 0.9, 1.0, 'lift'],
+    [0, 1.2, 1.2, 1.0, 0.9, 'bench'],
+    [0, 1.2, 1.0, 0.6, 0.3, 'desk'],
+    [0, 2.4, 2.4, 1.0, 0.9, 'ledge'],
+  ],
+  // 3 · The game's own rooms: long walks along the queue's rails, the
+  //     courtroom's benches, the giant duck.
+  [
+    [1, 3.4, 0.6, 0.8, 0.3, 'beam'],
+    [1, 1.4, 1.2, 1.0, 0.9, 'bench'],
+    [1, 1.8, 1.8, 0.9, 0.8, 'duck'],
+    [2, 3.4, 0.6, 0.8, 0.3, 'beam'],
+    [2, 1.2, 1.2, 1.0, 0.9, 'pedestal'],
+    [2, 1.4, 1.2, 1.0, 0.9, 'bench'],
+    [2, 1.8, 1.8, 1.0, 0.8, 'duck'],
+    [3, 3.4, 0.6, 0.8, 0.3, 'beam'],
+    [3, 1.2, 1.2, 1.0, 0.9, 'pedestal'],
+    [3, 1.4, 1.2, 1.0, 0.9, 'bench'],
+    [0, 3.0, 0.6, 0.8, 0.4, 'beam'],
+    [0, 1.4, 1.2, 1.0, 0.9, 'bench'],
+    [0, 2.4, 2.4, 1.0, 0.9, 'ledge'],
+  ],
+  // 4 · The sky: pipes and ladders between lone crates. The meanest lap —
+  //     still never a jump past a comfortable run-jump.
+  [
+    [1, 3.0, 0.6, 0.8, 0.3, 'pipe'],
+    [1, 1.0, 1.0, 1.0, 1.0, 'crates'],
+    [1, 3.0, 0.6, 0.8, 0.3, 'ladder'],
+    [2, 1.0, 1.0, 0.9, 1.0, 'crates'],
+    [2, 2.8, 0.6, 0.8, 0.4, 'pipe'],
+    [2, 1.0, 1.0, 0.9, 1.0, 'vending'],
+    [3, 3.0, 0.6, 0.8, 0.3, 'ladder'],
+    [3, 1.0, 1.0, 0.9, 1.0, 'crates'],
+    [3, 2.8, 0.6, 0.8, 0.3, 'pipe'],
+    [3, 1.0, 1.0, 0.9, 1.0, 'crates'],
+    [0, 1.0, 1.0, 0.9, 1.0, 'crates'],
+    [0, 1.6, 1.6, 1.0, 0.9, 'duck'],
+  ],
 ];
-const LAPS = 4;
-const SWAP: Partial<Record<Prop, Prop>>[] = [
-  {},
-  { crates: 'pedestal', trolley: 'lift', sofa: 'desk', duck: 'crates' },
-  { crates: 'duck', desk: 'bench', pedestal: 'crates', lift: 'trolley' },
-  { crates: 'vending', sofa: 'bench', trolley: 'crates', desk: 'duck' },
-];
+const NARROW: Prop[] = ['beam', 'ladder', 'pipe'];
+const MIN_NARROW = 0.6; // nothing you have to land on is thinner than this
 
 /** The whole route, bottom to top (exported for the headless climb). */
 export function buildRoute(): Plat[] {
@@ -109,29 +173,28 @@ export function buildRoute(): Plat[] {
     out.push(p);
     cur = p;
   };
-  for (const s of OPENING) plat(s);
-  for (let lap = 0; lap < LAPS; lap++) {
-    const shrink = 1 - lap * 0.08; // the tower tapers
-    for (const [dir, len, wide, gap, rise, prop] of LAP) {
-      const tricky = lap * 0.12; // later laps: wider gaps (never past a sure run-jump)…
-      const maxGap = sureGap(rise);
-      const w = prop === 'beam' || prop === 'ladder' || prop === 'pipe' ? Math.max(0.35, wide - lap * 0.05) : wide * shrink;
-      plat([dir, len * shrink, w, Math.min(maxGap, gap + tricky), rise, SWAP[lap][prop] ?? prop]);
+  for (const [dir, len, wide, gap, rise, prop] of OPENING) plat([dir, len, wide, Math.min(comfyGap(rise), gap), rise, prop]);
+  LAPS.forEach((lap, i) => {
+    const shrink = 1 - i * 0.06; // the tower tapers
+    for (const [dir, len, wide, gap, rise, prop] of lap) {
+      const w = NARROW.includes(prop) ? Math.max(MIN_NARROW, wide) : prop === 'ledge' ? wide : wide * shrink;
+      plat([dir, prop === 'ledge' ? len : len * shrink, w, Math.min(comfyGap(rise), gap), rise, prop]);
     }
-  }
-  plat([0, 2.4, 2.4, 1.0, 1.0, 'top']);
+  });
+  plat([0, 2.4, 2.4, Math.min(comfyGap(1.0), 1.0), 1.0, 'top']);
   return out;
 }
 
-// The widest gap a run-jump up `rise` still makes when you take off anywhere in
-// the last EARLY metres before the edge: your feet must be within a step of the
-// far top while you're over it, on the way down.
-const EARLY = 0.35;
-function sureGap(rise: number): number {
+// The widest gap a run-jump up `rise` makes when you take off anywhere in the
+// last EARLY metres before the edge: your feet must be within a step of the far
+// top while you're over it, on the way down. EARLY is generous on purpose —
+// this is a joke level, not a frame-perfect one.
+const EARLY = 0.8;
+export function comfyGap(rise: number): number {
   const need = rise - JUMP.step; // feet this high over the far edge
   const disc = JUMP.speed * JUMP.speed - 2 * JUMP.gravity * need;
   const tDown = (JUMP.speed + Math.sqrt(Math.max(0, disc))) / JUMP.gravity;
-  return Math.min(1.5, CONFIG.MOVE_SPEED * tDown - EARLY - 0.1);
+  return Math.min(1.3, CONFIG.MOVE_SPEED * tDown - EARLY - 0.1);
 }
 
 // How far each prop's solid part reaches below its top (you can walk under the
@@ -139,7 +202,7 @@ function sureGap(rise: number): number {
 function thickOf(prop: Prop, top: number): number {
   const t: Record<Prop, number> = {
     crates: 0.9, vending: 1.9, trolley: 1.2, beam: 0.12, desk: 0.8, pedestal: 1.0, sofa: 0.6,
-    lift: 2.2, ladder: 0.1, duck: 1.4, pipe: 0.5, bench: 0.5, top: 0.4,
+    lift: 2.2, ladder: 0.1, duck: 1.4, pipe: 0.5, bench: 0.5, ledge: 0.3, top: 0.4,
   };
   return Math.min(top, t[prop]);
 }
@@ -170,6 +233,119 @@ export function revealOnlyUp(ctx: GameContext): void {
   }
   ctx.setRegions(regions);
   ctx.setJump(JUMP);
+
+  // A blob shadow under you, on whatever you would land on — so you can judge a
+  // jump in first person instead of guessing.
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(0.32, 20),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.38, depthWrite: false }),
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  root.add(shadow);
+
+  // ── Checkpoints: the ledge at the end of each lap ──
+  const ledges = route.filter((p) => p.prop === 'ledge');
+  let reached = -1; // highest ledge stood on
+  const ledgeUnder = (x: number, z: number, foot: number) =>
+    ledges.findIndex((l) => Math.abs(x - l.x) <= l.sx / 2 && Math.abs(z - l.z) <= l.sz / 2 && Math.abs(foot - l.y) < 0.2);
+
+  // ── The service lift: back up to the highest ledge you have reached ──
+  const cage = new THREE.Group();
+  cage.position.copy(LIFT_AT);
+  root.add(cage);
+  const steel = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.7 });
+  for (const [cx, cz] of [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.6, 0.08), steel);
+    post.position.set(cx, 1.3, cz);
+    cage.add(post);
+  }
+  const cageFloor = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.1, 1.7), steel);
+  cageFloor.position.y = 0.05;
+  cage.add(cageFloor);
+  const cageRoof = cageFloor.clone();
+  cageRoof.position.y = 2.6;
+  cage.add(cageRoof);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3), new THREE.MeshBasicMaterial({ map: labelTexture('STAFF ONLY', '#1a1a1a', '#f2c418') }));
+  sign.position.set(0.86, 2.3, 0);
+  sign.rotation.y = Math.PI / 2;
+  cage.add(sign);
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.12, 46, 0.12), steel);
+  shaft.position.set(LIFT_AT.x - 0.9, 23, LIFT_AT.z - 0.9);
+  root.add(shaft);
+  let riding = false;
+  const ride = (to: Plat) => {
+    riding = true;
+    whoosh();
+    ctx.narrate(LIFT_RIDE, 4000, { priority: true });
+    const from = ctx.camera.position.clone();
+    const yaw = getYaw();
+    let t = 0;
+    const DUR = 3.2;
+    const mode: ControlMode = {
+      update(dt) {
+        t = Math.min(DUR, t + dt);
+        const k = t / DUR;
+        const e = k * k * (3 - 2 * k);
+        cage.position.y = e * to.y;
+        ctx.camera.position.set(from.x, from.y + e * to.y, from.z);
+        if (t >= DUR) {
+          ctx.setControlMode(null);
+          click();
+          sparkle();
+          ctx.spawnAt(new THREE.Vector3(to.x, to.y, to.z), yaw); // doors open: you're on the ledge
+          cage.position.y = 0; // and the lift goes back down for next time
+          riding = false;
+        }
+      },
+    };
+    ctx.setControlMode(mode);
+  };
+  registerInteractable({
+    id: 'only-up-lift',
+    position: LIFT_AT.clone(),
+    radius: 1.8,
+    promptLabel: 'RIDE',
+    labelOffsetY: 1.6,
+    canUse: () => !riding,
+    onUse() {
+      if (riding) return;
+      if (reached < 0) {
+        click();
+        ctx.narrate(LIFT_NONE, 5500, { priority: true });
+        return;
+      }
+      ride(ledges[reached]);
+    },
+  });
+
+  // ── After enough big falls: the door for people like you ──
+  let bigFalls = 0;
+  const openQuitDoor = () => {
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.6 });
+    for (const sx of [-0.85, 0.85]) {
+      const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.5, 0.15), frameMat);
+      jamb.position.set(DOOR_AT.x, 1.25, DOOR_AT.z + sx);
+      root.add(jamb);
+    }
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 1.85), frameMat);
+    lintel.position.set(DOOR_AT.x, 2.5, DOOR_AT.z);
+    root.add(lintel);
+    const light = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 2.4), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+    light.position.set(DOOR_AT.x, 1.2, DOOR_AT.z);
+    light.rotation.y = Math.PI / 2;
+    root.add(light);
+    const exitSign = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.3), new THREE.MeshBasicMaterial({ map: labelTexture('EXIT', '#ffffff', '#1f8a3a'), side: THREE.DoubleSide }));
+    exitSign.position.set(DOOR_AT.x + 0.1, 2.85, DOOR_AT.z);
+    exitSign.rotation.y = Math.PI / 2;
+    root.add(exitSign);
+    sparkle();
+    ctx.narrate(EASY_OUT, 7500, { priority: true });
+    walkThroughPortal(ctx, {
+      zone: (p) => Math.abs(p.x - DOOR_AT.x) < 0.35 && Math.abs(p.z - DOOR_AT.z) < 0.8 && p.y < CONFIG.PLAYER_HEIGHT + 0.5,
+      ref: DOOR_AT.clone(),
+    });
+    discover('reward:only-up-quit');
+  };
 
   // Clouds: soft blobs drifting around (and well clear of) the tower.
   const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.85 });
@@ -223,6 +399,7 @@ export function revealOnlyUp(ctx: GameContext): void {
       const drop = peak - foot;
       if (drop > LONG_FALL) {
         thud();
+        if (++bigFalls === QUIT_FALLS) openQuitDoor();
         if (drop > 20) discover('reward:only-up-long-fall');
         if (foot < 0.1 && !saidBottom) {
           saidBottom = true;
@@ -234,10 +411,24 @@ export function revealOnlyUp(ctx: GameContext): void {
       }
       peak = foot;
       best = Math.max(best, foot);
+      const li = ledgeUnder(ctx.camera.position.x, ctx.camera.position.z, foot);
+      if (li > reached) {
+        reached = li;
+        ctx.narrate(LEDGES[Math.min(li, LEDGES.length - 1)], 5500);
+      }
       while (milestone < MILESTONES.length && best >= (milestone + 1) * 10) {
         ctx.narrate(MILESTONES[milestone], 4500);
         milestone++;
       }
+    }
+    // The shadow: on the floor you'd land on, smaller the higher you are over it.
+    const px = ctx.camera.position.x;
+    const pz = ctx.camera.position.z;
+    const under = floorYAt(px, pz, foot, regions);
+    shadow.visible = under !== null;
+    if (under !== null) {
+      shadow.position.set(px, under + 0.03, pz);
+      shadow.scale.setScalar(THREE.MathUtils.clamp(1 - (foot - under) * 0.08, 0.45, 1));
     }
     // The sky deepens as you climb.
     const k = THREE.MathUtils.clamp(foot / 45, 0, 1);
@@ -400,6 +591,15 @@ function makeProp(p: Plat): THREE.Object3D {
       g.add(beak);
       break;
     }
+    case 'ledge': {
+      // A scaffold landing: planks, hazard trim, a post at each corner.
+      g.add(box(sx, thick, sz, 0x8a6a44, 0, -thick / 2, 0, 0.9));
+      g.add(box(sx + 0.05, 0.05, sz + 0.05, 0xf2c418, 0, -0.03, 0, 0.6));
+      for (const [cx, cz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) {
+        g.add(box(0.08, 1.0, 0.08, 0x6a6f78, cx * (sx - 0.1), 0.5, cz * (sz - 0.1), 0.4, 0.6));
+      }
+      break;
+    }
     case 'top': {
       g.add(box(sx, thick, sz, 0xf4f4f2, 0, -thick / 2, 0, 0.6));
       const trim = box(sx + 0.06, 0.06, sz + 0.06, 0xc9a86a, 0, -0.04, 0, 0.4, 0.5);
@@ -416,4 +616,22 @@ function makeProp(p: Plat): THREE.Object3D {
     g.add(d);
   }
   return g;
+}
+
+/** A flat sign texture (the lift's STAFF ONLY, the quit door's EXIT). */
+function labelTexture(text: string, fg: string, bg: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const c = canvas.getContext('2d');
+  if (c) {
+    c.fillStyle = bg;
+    c.fillRect(0, 0, 256, 64);
+    c.fillStyle = fg;
+    c.font = 'bold 36px sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(text, 128, 34);
+  }
+  return new THREE.CanvasTexture(canvas);
 }
