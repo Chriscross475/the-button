@@ -90,7 +90,12 @@ export function showMainMenu(opts: MainMenuOptions): void {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
+    // 'safe center': if the content is taller than the screen (phones), it
+    // starts at the top and scrolls instead of being clipped above the fold.
+    justifyContent: 'safe center',
+    overflowY: 'auto',
+    padding: 'max(16px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom))',
+    boxSizing: 'border-box',
     gap: '14px',
     background:
       'radial-gradient(ellipse at center, rgba(248,248,246,0.72) 0%, rgba(232,232,229,0.9) 75%)',
@@ -149,6 +154,8 @@ export function showMainMenu(opts: MainMenuOptions): void {
     display: 'flex',
     gap: '6px',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     marginTop: '22px',
     fontFamily: FONT_SIGN,
   } as Partial<CSSStyleDeclaration>);
@@ -235,6 +242,21 @@ export function showMainMenu(opts: MainMenuOptions): void {
     lbl.textContent = 'test:';
     Object.assign(lbl.style, { color: 'rgba(30,30,30,0.4)', fontSize: '11px', letterSpacing: '0.16em' });
     sel.appendChild(lbl);
+    // Touch screens: the ~40 test links would wrap into a wall taller than the
+    // phone and squeeze the big button — keep them behind a LEVELS toggle.
+    if (window.matchMedia('(pointer: coarse)').matches) {
+      sel.style.display = 'none';
+      const sepL = document.createElement('span');
+      sepL.textContent = '·';
+      sepL.style.color = 'rgba(30,30,30,0.35)';
+      links.appendChild(sepL);
+      const levels = makeLink('LEVELS');
+      levels.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        sel.style.display = sel.style.display === 'none' ? 'flex' : 'none';
+      });
+      links.appendChild(levels);
+    }
     for (const [id, label] of TEST_LEVELS) {
       const b = makeLink(label);
       b.addEventListener('pointerdown', (e) => {
@@ -263,7 +285,7 @@ function makeBigRedButton(onPress: () => void): HTMLButtonElement {
     const style = document.createElement('style');
     style.id = 'big-red-button-style';
     style.textContent = `
-      .brb { position: relative; width: 168px; height: 168px; border-radius: 50%; border: none; padding: 0;
+      .brb { position: relative; width: 168px; height: 168px; flex: 0 0 auto; aspect-ratio: 1; border-radius: 50%; border: none; padding: 0;
         margin: 6px 0 4px; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
         background: radial-gradient(circle at 50% 38%, #6a6d74 0%, #3a3c42 55%, #1c1d21 100%);
         box-shadow: 0 14px 30px rgba(0,0,0,0.35), inset 0 2px 3px rgba(255,255,255,0.35), inset 0 -6px 10px rgba(0,0,0,0.5); }
