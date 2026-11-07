@@ -148,6 +148,8 @@ export const touchScheme: InputScheme = {
           for (const o of touches.values()) {
             if (o.id !== t.identifier && o.role === 'look') {
               activeLookId = o.id;
+              o.startX = o.lastX;
+              o.startY = o.lastY;
               lookStick.show(o.lastX, o.lastY);
               break;
             }
