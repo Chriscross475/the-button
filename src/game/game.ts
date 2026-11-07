@@ -263,7 +263,7 @@ export class Game {
 
     this.input = createTouchInput(canvas, {
       onInteract: (mouseButton) => this.onInteract(mouseButton),
-      onTap: (x, y, canPress) => this.onTap(x, y, canPress),
+      onTap: (x, y, canPress, directOnly) => this.onTap(x, y, canPress, directOnly),
       onHand: (side, down) => this.onHand(side, down),
       jumpEnabled: () => isJumpEnabled(),
       onFirstInput: () => this.onFirstInput(),
@@ -612,7 +612,7 @@ export class Game {
     if (performance.now() - this.handDownAt[side] < HAND_TAP_MS) this.onInteract(side === 'right' ? 2 : 0);
   }
 
-  private onTap(x: number, y: number, canPress: boolean): void {
+  private onTap(x: number, y: number, canPress: boolean, directOnly = false): void {
     if (!this.started || this.paused) return;
     if (this.mode === 'dead') {
       this.restart();
@@ -624,8 +624,8 @@ export class Game {
       if (!this.companionStay) this.companionFollow = true;
       return;
     }
-    if (!this.playable() || !canPress) return;
-    const it = findTapTarget(x, y, this.canvas, this.camera, getAllInteractables());
+    if (!this.playable() || !(canPress || directOnly)) return;
+    const it = findTapTarget(x, y, this.canvas, this.camera, getAllInteractables(), !canPress);
     if (!it) return;
     const dx = it.position.x - this.camera.position.x;
     const dz = it.position.z - this.camera.position.z;

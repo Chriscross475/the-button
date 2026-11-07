@@ -30,7 +30,7 @@ export function createStickHud(id: string): StickHud {
       position: 'fixed',
       width: '160px',
       height: '160px',
-      border: '1px solid rgba(30, 30, 30, 0.18)',
+      border: '1.5px solid rgba(30, 30, 30, 0.26)',
       borderRadius: '50%',
       pointerEvents: 'none',
       display: 'none',
@@ -42,9 +42,9 @@ export function createStickHud(id: string): StickHud {
     knob.id = `joystick-knob${id}`;
     Object.assign(knob.style, {
       position: 'fixed',
-      width: '36px',
-      height: '36px',
-      background: 'rgba(30, 30, 30, 0.18)',
+      width: '40px',
+      height: '40px',
+      background: 'rgba(30, 30, 30, 0.24)',
       border: '1px solid rgba(30, 30, 30, 0.45)',
       borderRadius: '50%',
       pointerEvents: 'none',

@@ -1,0 +1,13 @@
+import {clampRadial,stickToMove,followBase,swipeGain,smoothFraction} from '../src/controls/touch-math.ts';
+const a=(c:boolean,m:string)=>{if(!c){console.error('FAIL',m);process.exit(1)}};
+const n=(x:number,y:number)=>Math.hypot(x,y);
+a(stickToMove(5,0,80,.12,1.5).x===0,'dz');
+const f=stickToMove(80,0,80,.12,1.5); a(Math.abs(f.x-1)<1e-9,'full');
+const d=stickToMove(100,100,80,.12,1.5); a(Math.abs(n(d.x,d.y)-1)<1e-9,'diag clamp radial');
+const h=stickToMove(0,-45,80,.12,1.5); a(h.y<0&&Math.abs(h.y)<0.4,'curve '+h.y);
+const c=clampRadial(100,100,80); a(Math.abs(n(c.x,c.y)-80)<1e-9,'clamp');
+const b=followBase(0,0,200,0,80); a(b.x===120&&b.y===0,'follow');
+const r=followBase(b.x,b.y,20,0,80); a(Math.abs(r.x-100)<1e-9,'reverse '+r.x);
+a(swipeGain(10,.5,2)===1.5&&swipeGain(0,.5,2)===1,'gain');
+a(Math.abs(smoothFraction(.03,.03)-.5)<1e-9,'smooth');
+console.log('all ok');

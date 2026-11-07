@@ -11,18 +11,15 @@
 
 import { showJoystick, moveJoystickKnob, hideJoystick, createStickHud } from './joystick-hud';
 import { ensureHandButtons } from './hand-buttons';
+import { CONFIG } from '../config';
+import { stickToMove, followBase, swipeGain, smoothFraction } from './touch-math';
 import type { InputScheme, SchemeContext, InputTick } from './input-types';
 
-const TAP_MAX_MS = 320;
-const TAP_MAX_PX = 18;
-const JOYSTICK_RADIUS = 80;
-const DEADZONE = 0.1;
 /** Left zone width as a fraction of viewport. 0.4 = 40% move, 60% look. */
 const LEFT_ZONE_FRACTION = 0.4;
 /** Look stick: past this fraction of the ring the view keeps turning while the
- *  finger is held, at up to EDGE_TURN_PX look-pixels per second. */
+ *  finger is held (at up to CONFIG.TOUCH_EDGE_TURN rad/s). */
 const EDGE_START = 0.85;
-const EDGE_TURN_PX = 520;
 
 interface TouchTracker {
   id: number;
@@ -30,8 +27,12 @@ interface TouchTracker {
   startY: number;
   lastX: number;
   lastY: number;
+  /** Zone the finger landed in. */
   side: 'left' | 'right';
+  /** 'move' = the single stick finger; every other finger just looks. */
+  role: 'move' | 'look';
   startTime: number;
+  lastTime: number;
   totalMovement: number;
 }
 
@@ -51,10 +52,20 @@ export const touchScheme: InputScheme = {
 
     const screenMid = () => window.innerWidth * LEFT_ZONE_FRACTION;
 
+    // Look deltas in radians, released to state.lookYaw/Pitch with exponential smoothing.
+    let pendYaw = 0;
+    let pendPitch = 0;
+    // Floating move-stick base (follows the finger beyond the radius).
+    let baseX = 0;
+    let baseY = 0;
+    const R = CONFIG.TOUCH_STICK_RADIUS;
+
     function handleStart(e: TouchEvent) {
       fireFirst();
+      const now = performance.now();
       for (const t of Array.from(e.changedTouches)) {
         const side: 'left' | 'right' = t.clientX < screenMid() ? 'left' : 'right';
+        const isMove = side === 'left' && activeJoystickId === null;
         touches.set(t.identifier, {
           id: t.identifier,
           startX: t.clientX,
@@ -62,14 +73,17 @@ export const touchScheme: InputScheme = {
           lastX: t.clientX,
           lastY: t.clientY,
           side,
-          startTime: performance.now(),
+          role: isMove ? 'move' : 'look',
+          startTime: now,
+          lastTime: now,
           totalMovement: 0,
         });
-        if (side === 'left' && activeJoystickId === null) {
+        if (isMove) {
           activeJoystickId = t.identifier;
-          showJoystick(t.clientX, t.clientY);
-        }
-        if (side === 'right' && activeLookId === null) {
+          baseX = t.clientX;
+          baseY = t.clientY;
+          showJoystick(baseX, baseY);
+        } else if (activeLookId === null) {
           activeLookId = t.identifier;
           lookStick.show(t.clientX, t.clientY);
         }
@@ -78,38 +92,40 @@ export const touchScheme: InputScheme = {
 
     function handleMove(e: TouchEvent) {
       e.preventDefault();
+      const now = performance.now();
+      const w = Math.max(1, window.innerWidth);
       for (const t of Array.from(e.changedTouches)) {
         const tracker = touches.get(t.identifier);
         if (!tracker) continue;
-        if (tracker.side === 'left') {
-          const dx = t.clientX - tracker.startX;
-          const dy = t.clientY - tracker.startY;
-          tracker.lastX = t.clientX;
-          tracker.lastY = t.clientY;
-          tracker.totalMovement = Math.hypot(dx, dy);
-          let mx = Math.max(-1, Math.min(1, dx / JOYSTICK_RADIUS));
-          let my = Math.max(-1, Math.min(1, dy / JOYSTICK_RADIUS));
-          if (Math.hypot(mx, my) < DEADZONE) {
-            mx = 0;
-            my = 0;
-          }
-          state.moveX = mx;
-          state.moveY = my;
-          if (t.identifier === activeJoystickId) {
-            moveJoystickKnob(tracker.startX, tracker.startY, dx, dy, JOYSTICK_RADIUS);
-          }
+        const ddx = t.clientX - tracker.lastX;
+        const ddy = t.clientY - tracker.lastY;
+        tracker.totalMovement = Math.hypot(t.clientX - tracker.startX, t.clientY - tracker.startY);
+        if (tracker.role === 'move') {
+          // Base follows the finger so it is never more than R away.
+          const b = followBase(baseX, baseY, t.clientX, t.clientY, R);
+          baseX = b.x;
+          baseY = b.y;
+          const dx = t.clientX - baseX;
+          const dy = t.clientY - baseY;
+          const m = stickToMove(dx, dy, R, CONFIG.TOUCH_DEADZONE, CONFIG.TOUCH_MOVE_CURVE);
+          state.moveX = m.x;
+          state.moveY = m.y;
+          showJoystick(baseX, baseY);
+          moveJoystickKnob(baseX, baseY, dx, dy, R);
         } else {
-          const ddx = t.clientX - tracker.lastX;
-          const ddy = t.clientY - tracker.lastY;
-          state.lookDx += ddx;
-          state.lookDy += ddy;
-          tracker.totalMovement += Math.hypot(ddx, ddy);
-          tracker.lastX = t.clientX;
-          tracker.lastY = t.clientY;
+          const dtSec = Math.max(0.008, (now - tracker.lastTime) / 1000);
+          const speed = Math.hypot(ddx, ddy) / w / dtSec; // widths per second
+          const gain = swipeGain(speed, CONFIG.TOUCH_LOOK_ACCEL, CONFIG.TOUCH_LOOK_ACCEL_REF);
+          const k = (CONFIG.TOUCH_LOOK_SENSITIVITY / w) * gain;
+          pendYaw += ddx * k;
+          pendPitch += ddy * k * CONFIG.TOUCH_LOOK_PITCH_SCALE;
           if (t.identifier === activeLookId) {
-            lookStick.move(tracker.startX, tracker.startY, t.clientX - tracker.startX, t.clientY - tracker.startY, JOYSTICK_RADIUS);
+            lookStick.move(tracker.startX, tracker.startY, t.clientX - tracker.startX, t.clientY - tracker.startY, R);
           }
         }
+        tracker.lastX = t.clientX;
+        tracker.lastY = t.clientY;
+        tracker.lastTime = now;
       }
     }
 
@@ -118,8 +134,8 @@ export const touchScheme: InputScheme = {
         const tracker = touches.get(t.identifier);
         if (!tracker) continue;
         const elapsed = performance.now() - tracker.startTime;
-        const isTap = elapsed < TAP_MAX_MS && tracker.totalMovement < TAP_MAX_PX;
-        if (tracker.side === 'left' && t.identifier === activeJoystickId) {
+        const isTap = e.type !== 'touchcancel' && elapsed < CONFIG.TOUCH_TAP_MS && tracker.totalMovement < CONFIG.TOUCH_TAP_PX;
+        if (t.identifier === activeJoystickId) {
           state.moveX = 0;
           state.moveY = 0;
           hideJoystick();
@@ -128,14 +144,22 @@ export const touchScheme: InputScheme = {
         if (t.identifier === activeLookId) {
           lookStick.hide();
           activeLookId = null;
+          // Hand the look stick to another look finger, if one is still down.
+          for (const o of touches.values()) {
+            if (o.id !== t.identifier && o.role === 'look') {
+              activeLookId = o.id;
+              lookStick.show(o.lastX, o.lastY);
+              break;
+            }
+          }
         }
         if (isTap) {
-          // canPress = right (look) half only; the left half is the joystick.
-          // AND not while the move-stick is held: a look-zone tap shouldn't
-          // press the button mid-walk (the joystick thumb is steering, and a
-          // brief look-finger tap then reads as an accidental press).
+          // Right (look) half only — the left half is the stick. While the
+          // stick is held a tap only counts if it hits an interactable directly
+          // (raycast); ambiguous presses are suppressed.
           const moving = activeJoystickId !== null;
-          options.onTap?.(t.clientX, t.clientY, tracker.side === 'right' && !moving);
+          const rightSide = tracker.side === 'right';
+          options.onTap?.(t.clientX, t.clientY, rightSide && !moving, rightSide && moving);
         }
         touches.delete(t.identifier);
       }
@@ -152,19 +176,35 @@ export const touchScheme: InputScheme = {
     canvas.addEventListener('touchend', handleEnd, { passive: false });
     canvas.addEventListener('touchcancel', handleEnd, { passive: false });
 
-    // Look stick held out past the ring: keep turning that way.
+    // Per frame: look stick held out past the ring keeps turning; then release
+    // the smoothed share of the pending look delta.
     return (dt: number) => {
-      if (activeLookId === null) return;
-      const tr = touches.get(activeLookId);
-      if (!tr) return;
-      const dx = tr.lastX - tr.startX;
-      const dy = tr.lastY - tr.startY;
-      const d = Math.hypot(dx, dy) / JOYSTICK_RADIUS;
-      if (d <= EDGE_START) return;
-      const push = Math.min(1, (d - EDGE_START) / (1 - EDGE_START));
-      const n = Math.hypot(dx, dy);
-      state.lookDx += (dx / n) * push * EDGE_TURN_PX * dt;
-      state.lookDy += (dy / n) * push * EDGE_TURN_PX * dt;
+      if (activeLookId !== null) {
+        const tr = touches.get(activeLookId);
+        if (tr) {
+          const dx = tr.lastX - tr.startX;
+          const dy = tr.lastY - tr.startY;
+          const n = Math.hypot(dx, dy);
+          const d = n / R;
+          if (d > EDGE_START) {
+            const push = Math.min(1, (d - EDGE_START) / (1 - EDGE_START));
+            const rate = CONFIG.TOUCH_EDGE_TURN * push * dt;
+            pendYaw += (dx / n) * rate;
+            pendPitch += (dy / n) * rate * CONFIG.TOUCH_LOOK_PITCH_SCALE;
+          }
+        }
+      }
+      if (pendYaw !== 0 || pendPitch !== 0) {
+        const f = smoothFraction(dt, CONFIG.TOUCH_LOOK_SMOOTH_HALFLIFE);
+        const oy = pendYaw * f;
+        const op = pendPitch * f;
+        pendYaw -= oy;
+        pendPitch -= op;
+        if (Math.abs(pendYaw) < 1e-5) pendYaw = 0;
+        if (Math.abs(pendPitch) < 1e-5) pendPitch = 0;
+        state.lookYaw = (state.lookYaw ?? 0) + oy;
+        state.lookPitch = (state.lookPitch ?? 0) + op;
+      }
     };
   },
 };

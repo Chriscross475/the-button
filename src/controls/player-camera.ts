@@ -124,12 +124,20 @@ export function getForwardXZ(out = new THREE.Vector3()): THREE.Vector3 {
   return out;
 }
 
+/** Keep analog magnitude (touch stick) but never exceed 1 (keyboard diagonals). */
+function clampLen1(v: THREE.Vector3): THREE.Vector3 {
+  const l = v.length();
+  return l > 1 ? v.multiplyScalar(1 / l) : v;
+}
+
 /** Apply look (yaw/pitch) from input and consume the deltas. Shared by normal
  *  walking and the airborne (launched) state, where you steer by looking. */
 export function updateLook(camera: THREE.PerspectiveCamera, input: InputState): void {
   const sens = CONFIG.LOOK_SENSITIVITY;
-  yaw -= input.lookDx * sens;
-  pitch -= input.lookDy * sens;
+  yaw -= input.lookDx * sens + (input.lookYaw ?? 0);
+  pitch -= input.lookDy * sens + (input.lookPitch ?? 0);
+  input.lookYaw = 0;
+  input.lookPitch = 0;
   pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
   input.lookDx = 0;
   input.lookDy = 0;
@@ -168,7 +176,7 @@ export function updatePlayer(
       .addScaledVector(forward, -input.moveY)
       .addScaledVector(right, input.moveX);
     if (want.lengthSq() > 0) {
-      want.normalize();
+      clampLen1(want);
       const accel = CONFIG.MOVE_SPEED * 5;
       wvx += want.x * accel * dt;
       wvz += want.z * accel * dt;
@@ -206,7 +214,7 @@ export function updatePlayer(
       .addScaledVector(right, input.moveX);
 
     if (move.lengthSq() > 0) {
-      move.normalize().multiplyScalar(CONFIG.MOVE_SPEED * dt);
+      clampLen1(move).multiplyScalar(CONFIG.MOVE_SPEED * dt);
       const fromX = camera.position.x;
       const fromZ = camera.position.z;
       const r = CONFIG.PLAYER_RADIUS;
@@ -261,7 +269,7 @@ function walkWithJump(
     const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, yaw, 0));
     const move = new THREE.Vector3().addScaledVector(forward, -input.moveY).addScaledVector(right, input.moveX);
     if (move.lengthSq() > 0) {
-      move.normalize().multiplyScalar(CONFIG.MOVE_SPEED * dt);
+      clampLen1(move).multiplyScalar(CONFIG.MOVE_SPEED * dt);
       let cx = camera.position.x;
       let cz = camera.position.z;
       const free = (x: number, z: number) =>
