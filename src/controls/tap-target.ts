@@ -18,6 +18,7 @@ export function findTapTarget(
   canvas: HTMLCanvasElement,
   camera: THREE.Camera,
   interactables: readonly Interactable[],
+  directOnly = false,
 ): Interactable | null {
   const rect = canvas.getBoundingClientRect();
   ndc.set(
@@ -40,6 +41,8 @@ export function findTapTarget(
       if (isDescendantOrSelf(hitObj, r.root)) return r.it;
     }
   }
+
+  if (directOnly) return null;
 
   // Screen-space proximity fallback.
   const tapPxX = clientX - rect.left;

@@ -11,6 +11,10 @@ export interface InputState {
    *  consumes these and resets them to 0. */
   lookDx: number;
   lookDy: number;
+  /** Look delta already in radians (touch; screen-normalised + smoothed).
+   *  Consumed alongside lookDx/lookDy. Same sign convention as lookDx/lookDy (finger right/down). */
+  lookYaw?: number;
+  lookPitch?: number;
   /** A jump was requested (Space / the touch JUMP button); the walker consumes
    *  it each frame. Only acted on in levels that enable jumping. */
   jump?: boolean;
@@ -40,7 +44,7 @@ export interface InputOptions {
    *  the tap hit something pressable and acts. `canPress` is false for the
    *  touch joystick half (a direct hit is still honoured there, but the
    *  walk-up fallback is suppressed). */
-  onTap?: (clientX: number, clientY: number, canPress: boolean) => void;
+  onTap?: (clientX: number, clientY: number, canPress: boolean, directOnly?: boolean) => void;
   /** Fired when the player asks to interact without a screen coordinate
    *  (E / Space, or a pointer-locked click — `mouseButton` says which). Means
    *  "use the currently in-range interactable". */
